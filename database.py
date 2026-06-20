@@ -13,6 +13,18 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
+
+def _config(chave: str, padrao: str | None = None) -> str | None:
+    """Le configuracao do .env (PC local) ou de st.secrets (Streamlit Cloud)."""
+    valor = os.getenv(chave)
+    if valor:
+        return valor
+    try:
+        import streamlit as st
+        return st.secrets.get(chave, padrao)
+    except Exception:
+        return padrao
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS registros (
     codigo TEXT PRIMARY KEY,
@@ -58,11 +70,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 def get_connection():
     return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT", "5432"),
-        dbname=os.getenv("DB_NAME", "postgres"),
-        user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD"),
+        host=_config("DB_HOST"),
+        port=_config("DB_PORT", "5432"),
+        dbname=_config("DB_NAME", "postgres"),
+        user=_config("DB_USER", "postgres"),
+        password=_config("DB_PASSWORD"),
         sslmode="require",
     )
 
@@ -79,4 +91,4 @@ def init_db() -> None:
 
 if __name__ == "__main__":
     init_db()
-    print(f"Banco Postgres (Supabase) inicializado. Host: {os.getenv('DB_HOST')}")
+    print(f"Banco Postgres (Supabase) inicializado. Host: {_config('DB_HOST')}")
