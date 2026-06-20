@@ -1,0 +1,10 @@
+venv/
+.env
+*.db
+downloads/*.xlsx
+logs/*.log
+logs/*.html
+credentials.json
+token.json
+__pycache__/
+*.pyc
