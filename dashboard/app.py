@@ -114,12 +114,12 @@ with st.sidebar:
 
         valor_min_dados = float(df["valor"].min())
         valor_max_dados = float(df["valor"].max())
-        valor_min_sel, valor_max_sel = st.slider(
-            "Faixa de valor do pedido (R$)",
-            min_value=valor_min_dados,
-            max_value=valor_max_dados,
-            value=(valor_min_dados, valor_max_dados),
-        )
+        st.caption("Faixa de valor do pedido (R$)")
+        col_de, col_ate = st.columns(2)
+        with col_de:
+            valor_min_sel = st.number_input("De:", min_value=valor_min_dados, max_value=valor_max_dados, value=valor_min_dados, step=100.0)
+        with col_ate:
+            valor_max_sel = st.number_input("Até:", min_value=valor_min_dados, max_value=valor_max_dados, value=valor_max_dados, step=100.0)
 
     st.divider()
     with st.expander("Administração"):
