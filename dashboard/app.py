@@ -183,8 +183,8 @@ if situacoes_sel:
 # ---------------------------------------------------------------------------
 st.title("📊 Vendas Casa Dekora")
 
-aba_tabela, aba_graficos, aba_kpis, aba_log = st.tabs(
-    ["Tabela", "Gráficos", "KPIs", "Log de sincronização"]
+aba_tabela, aba_graficos, aba_kpis, aba_metas, aba_log = st.tabs(
+    ["Tabela", "Gráficos", "KPIs", "Metas", "Log de sincronização"]
 )
 
 with aba_tabela:
@@ -225,6 +225,73 @@ with aba_kpis:
     c2.metric("Ticket médio", f"R$ {ticket_medio:,.2f}")
     c3.metric("Qtd. vendas", qtd_vendas)
     c4.metric("Taxa de aprovação", f"{taxa_aprovacao:.1f}%")
+
+with aba_metas:
+    from metas import upsert_meta, upsert_lote, listar_metas, VENDEDOR_GERAL, TIPOS_KPI_SUGERIDOS
+
+    st.subheader("Cadastrar/atualizar uma meta")
+    st.caption(
+        "Inserir a mesma combinação de KPI + vendedor + mês de novo apenas "
+        "atualiza o valor (use para replanejamento)."
+    )
+    with st.form("form_meta_individual"):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            tipo_kpi_opcoes = TIPOS_KPI_SUGERIDOS + ["Outro (digitar abaixo)"]
+            tipo_kpi_sel = st.selectbox("KPI", tipo_kpi_opcoes)
+            tipo_kpi_custom = st.text_input("KPI personalizado", disabled=tipo_kpi_sel != "Outro (digitar abaixo)")
+        with col2:
+            vendedores_existentes = [VENDEDOR_GERAL] + (
+                sorted(df["vendedor"].dropna().unique()) if not df.empty else []
+            )
+            vendedor_sel = st.selectbox("Vendedor (ou Geral)", vendedores_existentes + ["Outro (digitar abaixo)"])
+            vendedor_custom = st.text_input("Vendedor personalizado", disabled=vendedor_sel != "Outro (digitar abaixo)")
+        with col3:
+            mes_ref = st.date_input("Mês de referência", value=date.today().replace(day=1))
+        with col4:
+            valor_meta_input = st.number_input("Valor da meta", min_value=0.0, step=100.0)
+
+        salvar_individual = st.form_submit_button("💾 Salvar meta")
+
+    if salvar_individual:
+        tipo_kpi_final = tipo_kpi_custom if tipo_kpi_sel == "Outro (digitar abaixo)" else tipo_kpi_sel
+        vendedor_final = vendedor_custom if vendedor_sel == "Outro (digitar abaixo)" else vendedor_sel
+        ano_mes_final = mes_ref.strftime("%Y-%m")
+        if not tipo_kpi_final:
+            st.error("Informe o KPI.")
+        else:
+            try:
+                upsert_meta(tipo_kpi_final, vendedor_final, ano_mes_final, valor_meta_input)
+                st.success(f"Meta salva: {tipo_kpi_final} / {vendedor_final} / {ano_mes_final}")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Falha ao salvar: {e}")
+
+    st.divider()
+    st.subheader("Inserção em lote")
+    st.caption(
+        "Edite a tabela abaixo (adicione/cole várias linhas) e clique em "
+        "Salvar todas. vendedor='GERAL' para meta da empresa. ano_mes no "
+        "formato AAAA-MM."
+    )
+    modelo_lote = pd.DataFrame(
+        [{"tipo_kpi": "valor_vendas", "vendedor": VENDEDOR_GERAL, "ano_mes": date.today().strftime("%Y-%m"), "valor_meta": 0.0}]
+    )
+    lote_editado = st.data_editor(modelo_lote, num_rows="dynamic", use_container_width=True, key="editor_lote_metas")
+
+    if st.button("💾 Salvar todas"):
+        resultado_lote = upsert_lote(lote_editado)
+        if resultado_lote["erros"]:
+            st.warning(f"{resultado_lote['sucesso']} salva(s). Erros:\n" + "\n".join(resultado_lote["erros"]))
+        else:
+            st.success(f"{resultado_lote['sucesso']} meta(s) salva(s) com sucesso.")
+        st.cache_data.clear()
+        st.rerun()
+
+    st.divider()
+    st.subheader("Metas cadastradas")
+    st.dataframe(listar_metas(), use_container_width=True, hide_index=True)
 
 with aba_log:
     log = carregar_sync_log()

@@ -65,6 +65,22 @@ CREATE TABLE IF NOT EXISTS usuarios (
     senha_hash TEXT NOT NULL,
     nome TEXT
 );
+
+-- Metas (gerais ou individuais) por KPI e mes. vendedor = 'GERAL' para
+-- metas da empresa como um todo. tipo_kpi e livre (ex: valor_vendas,
+-- ticket_medio, qtd_vendas, taxa_aprovacao) para suportar metas alem de
+-- valor de vendas. UNIQUE(tipo_kpi, vendedor, ano_mes) garante que inserir
+-- a meta de novo so atualiza (replanejamento), nunca duplica.
+CREATE TABLE IF NOT EXISTS metas (
+    id SERIAL PRIMARY KEY,
+    tipo_kpi TEXT NOT NULL,
+    vendedor TEXT NOT NULL DEFAULT 'GERAL',
+    ano_mes TEXT NOT NULL,
+    valor_meta REAL NOT NULL,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (tipo_kpi, vendedor, ano_mes)
+);
 """
 
 
