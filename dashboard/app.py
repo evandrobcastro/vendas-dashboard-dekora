@@ -95,6 +95,7 @@ with st.sidebar:
         st.info("Banco ainda sem dados. Sincronize para começar.")
         periodo = None
         vendedores_sel, cidades_sel, situacoes_sel = [], [], []
+        valor_min_sel, valor_max_sel = None, None
     else:
         data_min = df["data_referencia"].min().date()
         data_max = date.today()
@@ -110,6 +111,15 @@ with st.sidebar:
         vendedores_sel = st.multiselect("Vendedor", vendedores)
         cidades_sel = st.multiselect("Cidade", cidades)
         situacoes_sel = st.multiselect("Situação", situacoes)
+
+        valor_min_dados = float(df["valor"].min())
+        valor_max_dados = float(df["valor"].max())
+        valor_min_sel, valor_max_sel = st.slider(
+            "Faixa de valor do pedido (R$)",
+            min_value=valor_min_dados,
+            max_value=valor_max_dados,
+            value=(valor_min_dados, valor_max_dados),
+        )
 
     st.divider()
     with st.expander("Administração"):
@@ -161,6 +171,10 @@ if vendedores_sel:
     df_filtrado = df_filtrado[df_filtrado["vendedor"].isin(vendedores_sel)]
 if cidades_sel:
     df_filtrado = df_filtrado[df_filtrado["cidade"].isin(cidades_sel)]
+if valor_min_sel is not None:
+    df_filtrado = df_filtrado[
+        (df_filtrado["valor"] >= valor_min_sel) & (df_filtrado["valor"] <= valor_max_sel)
+    ]
 if situacoes_sel:
     df_filtrado = df_filtrado[df_filtrado["situacao"].isin(situacoes_sel)]
 
