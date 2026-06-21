@@ -105,7 +105,11 @@ with st.sidebar:
 
     st.divider()
     with st.expander("Administração"):
-        dias = st.number_input("Sincronizar últimos N dias", min_value=1, max_value=365, value=7)
+        data_desde = st.date_input(
+            "Sincronizar desde",
+            value=date.today() - timedelta(days=7),
+            max_value=date.today(),
+        )
         if st.button("🔄 Sincronizar agora"):
             with st.spinner("Conectando ao ERP, baixando e processando dados..."):
                 try:
@@ -116,13 +120,12 @@ with st.sidebar:
                     from storage import sincronizar
 
                     load_dotenv(BASE / ".env")
-                    hoje = date.today()
                     arquivos = baixar_vendas_e_orcamentos(
                         usuario=os.getenv("ECG_USER"),
                         senha=os.getenv("ECG_PASSWORD"),
                         download_dir=BASE / "downloads",
-                        data_inicio=hoje - timedelta(days=int(dias)),
-                        data_fim=hoje,
+                        data_inicio=data_desde,
+                        data_fim=date.today(),
                         headless=True,
                     )
                     df_novo = unificar(arquivos["vendas"], arquivos["orcamentos"])
