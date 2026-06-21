@@ -112,14 +112,25 @@ with st.sidebar:
         cidades_sel = st.multiselect("Cidade", cidades)
         situacoes_sel = st.multiselect("Situação", situacoes)
 
-        valor_min_dados = float(df["valor"].min())
-        valor_max_dados = float(df["valor"].max())
-        st.caption("Faixa de valor do pedido (R$)")
+        st.caption("Faixa de valor do pedido (R$) — deixe em branco para não limitar")
         col_de, col_ate = st.columns(2)
         with col_de:
-            valor_min_sel = st.number_input("De:", min_value=valor_min_dados, max_value=valor_max_dados, value=valor_min_dados, step=100.0)
+            valor_de_texto = st.text_input("De:", value="", placeholder="sem mínimo")
         with col_ate:
-            valor_max_sel = st.number_input("Até:", min_value=valor_min_dados, max_value=valor_max_dados, value=valor_max_dados, step=100.0)
+            valor_ate_texto = st.text_input("Até:", value="", placeholder="sem máximo")
+
+        def _parse_valor(texto: str) -> float | None:
+            texto = texto.strip().replace(".", "").replace(",", ".")
+            if not texto:
+                return None
+            try:
+                return float(texto)
+            except ValueError:
+                st.sidebar.error(f"Valor inválido: '{texto}'")
+                return None
+
+        valor_min_sel = _parse_valor(valor_de_texto)
+        valor_max_sel = _parse_valor(valor_ate_texto)
 
     st.divider()
     with st.expander("Administração"):
@@ -172,9 +183,9 @@ if vendedores_sel:
 if cidades_sel:
     df_filtrado = df_filtrado[df_filtrado["cidade"].isin(cidades_sel)]
 if valor_min_sel is not None:
-    df_filtrado = df_filtrado[
-        (df_filtrado["valor"] >= valor_min_sel) & (df_filtrado["valor"] <= valor_max_sel)
-    ]
+    df_filtrado = df_filtrado[df_filtrado["valor"] >= valor_min_sel]
+if valor_max_sel is not None:
+    df_filtrado = df_filtrado[df_filtrado["valor"] <= valor_max_sel]
 if situacoes_sel:
     df_filtrado = df_filtrado[df_filtrado["situacao"].isin(situacoes_sel)]
 
