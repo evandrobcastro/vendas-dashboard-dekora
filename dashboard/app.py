@@ -61,6 +61,11 @@ def carregar_dados() -> pd.DataFrame:
     conn.close()
     for col in ("data_cadastro", "data_aprovacao"):
         df[col] = pd.to_datetime(df[col], errors="coerce")
+    # Data de referencia para filtros de periodo: vendas (aprovado/fechado)
+    # usam a data de aprovacao; orcamentos em aberto usam a data de cadastro.
+    df["data_referencia"] = df["data_cadastro"].where(
+        df["tipo"] != "venda", df["data_aprovacao"]
+    )
     return df
 
 
@@ -91,9 +96,12 @@ with st.sidebar:
         periodo = None
         vendedores_sel, cidades_sel, situacoes_sel = [], [], []
     else:
-        data_min = df["data_cadastro"].min().date()
+        data_min = df["data_referencia"].min().date()
         data_max = date.today()
-        periodo = st.date_input("Período (data cadastro)", value=(data_min, data_max))
+        periodo = st.date_input(
+            "Período (cadastro p/ orçamentos, aprovação p/ vendas)",
+            value=(data_min, data_max),
+        )
 
         vendedores = sorted(df["vendedor"].dropna().unique())
         cidades = sorted(df["cidade"].dropna().unique())
@@ -146,8 +154,8 @@ df_filtrado = df.copy()
 if not df.empty and periodo and len(periodo) == 2:
     inicio, fim = periodo
     df_filtrado = df_filtrado[
-        (df_filtrado["data_cadastro"].dt.date >= inicio)
-        & (df_filtrado["data_cadastro"].dt.date <= fim)
+        (df_filtrado["data_referencia"].dt.date >= inicio)
+        & (df_filtrado["data_referencia"].dt.date <= fim)
     ]
 if vendedores_sel:
     df_filtrado = df_filtrado[df_filtrado["vendedor"].isin(vendedores_sel)]
