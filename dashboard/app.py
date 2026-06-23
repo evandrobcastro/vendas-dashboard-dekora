@@ -102,9 +102,12 @@ with st.sidebar:
     else:
         data_min = df["data_referencia"].min().date()
         data_max = date.today()
+        inicio_ano_atual = date.today().replace(month=1, day=1)
         periodo = st.date_input(
             "Período (cadastro p/ orçamentos, aprovação p/ vendas)",
-            value=(data_min, data_max),
+            value=(inicio_ano_atual, data_max),
+            min_value=data_min,
+            max_value=data_max,
         )
 
         vendedores = sorted(df["vendedor"].dropna().unique())
