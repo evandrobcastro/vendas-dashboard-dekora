@@ -13,7 +13,9 @@ sys.path.insert(0, str(BASE / "skills"))
 
 from database import get_connection, init_db  # noqa: E402
 
-st.set_page_config(page_title="Vendas Casa Dekora", layout="wide")
+LOGO_PATH = BASE / "dashboard" / "assets" / "logo_casadekora.png"
+
+st.set_page_config(page_title="Boletim Casa Dekora", page_icon=str(LOGO_PATH), layout="wide")
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +33,8 @@ def autenticar(email: str, senha: str) -> dict | None:
 
 
 def tela_login():
-    st.title("Vendas Casa Dekora")
+    st.image(str(LOGO_PATH), width=200)
+    st.title("Boletim Casa Dekora")
     with st.form("login"):
         email = st.text_input("E-mail")
         senha = st.text_input("Senha", type="password")
@@ -192,7 +195,11 @@ if situacoes_sel:
 # ---------------------------------------------------------------------------
 # Conteudo principal
 # ---------------------------------------------------------------------------
-st.title("📊 Vendas Casa Dekora")
+col_logo, col_titulo = st.columns([1, 9], vertical_alignment="center")
+with col_logo:
+    st.image(str(LOGO_PATH), width=60)
+with col_titulo:
+    st.title("Boletim Casa Dekora")
 
 aba_tabela, aba_graficos, aba_kpis, aba_metas, aba_log = st.tabs(
     ["Tabela", "Gráficos", "KPIs", "Metas", "Log de sincronização"]
