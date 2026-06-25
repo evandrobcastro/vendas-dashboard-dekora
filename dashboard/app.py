@@ -130,6 +130,19 @@ st.markdown(
         background-color: var(--branco);
         border-right: 1px solid #E3D9C8;
     }
+    /* Garante que a barra de filtros apareca sempre no desktop, mesmo que o
+       Streamlit tente recolhe-la (no celular continua como sobreposicao,
+       aberta/fechada pelo botao de setas). */
+    @media (min-width: 641px) {
+        section[data-testid="stSidebar"] {
+            transform: none !important;
+            visibility: visible !important;
+            min-width: 244px !important;
+        }
+        section[data-testid="stSidebar"][aria-expanded="false"] {
+            margin-left: 0 !important;
+        }
+    }
     section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
         color: var(--terracota) !important;
         text-transform: uppercase;
