@@ -17,7 +17,12 @@ from database import get_connection, init_db  # noqa: E402
 LOGO_PATH = BASE / "dashboard" / "assets" / "logo_casadekora.png"
 LOGO_NEGATIVO_PATH = BASE / "dashboard" / "assets" / "logo_negativo.png"
 
-st.set_page_config(page_title="Boletim Casa Dekora", page_icon=str(LOGO_PATH), layout="wide")
+st.set_page_config(
+    page_title="Boletim Casa Dekora",
+    page_icon=str(LOGO_PATH),
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 _LOGO_NEGATIVO_B64 = base64.b64encode(LOGO_NEGATIVO_PATH.read_bytes()).decode()
 
@@ -189,11 +194,25 @@ st.markdown(
         max-width: 100% !important;
     }
 
-    /* Remove a barra padrao do Streamlit (menu Deploy / hamburguer / decoracao) */
-    header[data-testid="stHeader"] { display: none; height: 0; }
+    /* Esconde so o menu Deploy/hamburguer/decoracao, mantendo o header
+       visivel para nao perder o botao de recolher/expandir a sidebar */
+    header[data-testid="stHeader"] {
+        background-color: transparent;
+        box-shadow: none;
+        z-index: 999999;
+    }
     div[data-testid="stToolbar"] { display: none; }
     div[data-testid="stDecoration"] { display: none; }
-    .stApp > div:first-child { padding-top: 0; }
+    button[data-testid="stSidebarCollapsedControl"],
+    div[data-testid="stSidebarCollapsedControl"] {
+        z-index: 999999 !important;
+        visibility: visible !important;
+        display: flex !important;
+    }
+    button[data-testid="stSidebarCollapsedControl"] svg,
+    div[data-testid="stSidebarCollapsedControl"] svg {
+        fill: var(--terracota) !important;
+    }
 
     /* Mobile: reduz espacamentos e fonte do topo */
     @media (max-width: 640px) {
