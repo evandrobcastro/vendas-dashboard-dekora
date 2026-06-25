@@ -12,7 +12,13 @@ BASE = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE))
 sys.path.insert(0, str(BASE / "skills"))
 
-from database import get_connection, init_db  # noqa: E402
+from database import (  # noqa: E402
+    get_connection,
+    init_db,
+    criar_pedido_sync,
+    pedido_sync_em_andamento,
+    ultimo_pedido_sync,
+)
 
 LOGO_PATH = BASE / "dashboard" / "assets" / "logo_casadekora.png"
 LOGO_NEGATIVO_PATH = BASE / "dashboard" / "assets" / "logo_negativo.png"
@@ -370,39 +376,40 @@ with st.sidebar:
 
     st.divider()
     with st.expander("Administração"):
+        st.caption(
+            "A sincronização baixa os dados do ERP e roda no PC da Casa Dekora "
+            "(que fica ligado). Você pode pedir daqui de qualquer lugar — celular "
+            "ou outro computador — e o resultado aparece em alguns minutos."
+        )
         data_desde = st.date_input(
             "Sincronizar desde",
             value=date.today() - timedelta(days=7),
             max_value=date.today(),
         )
-        if st.button("🔄 Sincronizar agora"):
-            with st.spinner("Conectando ao ERP, baixando e processando dados..."):
-                try:
-                    import os
-                    from dotenv import load_dotenv
-                    from download_erp import baixar_vendas_e_orcamentos
-                    from process_data import unificar
-                    from storage import sincronizar
 
-                    load_dotenv(BASE / ".env")
-                    arquivos = baixar_vendas_e_orcamentos(
-                        usuario=os.getenv("ECG_USER"),
-                        senha=os.getenv("ECG_PASSWORD"),
-                        download_dir=BASE / "downloads",
-                        data_inicio=data_desde,
-                        data_fim=date.today(),
-                        headless=True,
-                    )
-                    df_novo = unificar(arquivos["vendas"], arquivos["orcamentos"])
-                    resultado = sincronizar(df_novo)
-                    st.success(
-                        f"Sincronizado! {resultado['novos']} novo(s), "
-                        f"{resultado['atualizados']} atualizado(s)."
-                    )
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Falha na sincronização: {e}")
+        em_andamento = pedido_sync_em_andamento()
+        if em_andamento:
+            st.info("⏳ Já existe uma sincronização em andamento. Aguarde ela terminar.")
+
+        if st.button("🔄 Sincronizar agora", disabled=em_andamento):
+            dias = max((date.today() - data_desde).days, 0)
+            criar_pedido_sync(st.session_state["usuario"]["email"], dias)
+            st.success(
+                "Pedido enviado! O PC vai sincronizar em instantes. "
+                "Recarregue a página em alguns minutos para ver os dados novos."
+            )
+            st.rerun()
+
+        ultimo = ultimo_pedido_sync()
+        if ultimo:
+            quando = ultimo["atualizado_em"]
+            quando_txt = quando.strftime("%d/%m %H:%M") if hasattr(quando, "strftime") else ""
+            if ultimo["status"] == "concluido":
+                st.caption(f"✅ Última sincronização ({quando_txt}): {ultimo['mensagem']}")
+            elif ultimo["status"] == "falhou":
+                st.caption(f"⚠️ Última tentativa falhou ({quando_txt}): {ultimo['mensagem']}")
+            elif ultimo["status"] == "processando":
+                st.caption("🔄 Sincronizando agora no PC...")
 
 # ---------------------------------------------------------------------------
 # Aplica filtros

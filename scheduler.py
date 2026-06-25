@@ -16,11 +16,13 @@ Sincronizacao manual continua disponivel pelo botao no dashboard ou via:
 import logging
 import os
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import load_dotenv
 
 BASE = Path(__file__).parent
@@ -29,6 +31,17 @@ sys.path.insert(0, str(BASE))
 from orchestrator import executar  # noqa: E402
 from backfill import rodar as rodar_backfill  # noqa: E402
 from skills.email_notifier import enviar_resumo  # noqa: E402
+from database import (  # noqa: E402
+    init_db,
+    proximo_pedido_pendente,
+    atualizar_pedido_sync,
+)
+
+# Trava unica para TODA sincronizacao (automatica ou manual): garante que nunca
+# rodam dois downloads do ERP ao mesmo tempo (dois Chrome competindo pela mesma
+# sessao/pasta de download dariam erro). As rotinas agendadas esperam a vez; a
+# verificacao da fila manual desiste e tenta de novo na proxima rodada.
+_sync_lock = threading.Lock()
 
 log = logging.getLogger("scheduler")
 log.setLevel(logging.INFO)
@@ -65,21 +78,55 @@ def _notificar(resultado: dict | None, erro: str | None) -> None:
 
 def job_semanal():
     log.info("Disparando sincronizacao semanal agendada (sexta 7:59)")
+    with _sync_lock:  # espera a vez se houver sync manual em andamento
+        try:
+            executar(dias=7, headless=True, notificar=True)
+        except Exception:
+            log.exception("Sincronizacao semanal agendada falhou")
+
+
+def job_processar_pedidos():
+    """Verifica a fila de pedidos manuais (vindos do dashboard na nuvem) e
+    executa a sincronizacao no PC. Isolado: qualquer falha so marca o pedido
+    como 'falhou' e nunca derruba o scheduler nem as rotinas automaticas."""
     try:
-        executar(dias=7, headless=True, notificar=True)
+        pedido = proximo_pedido_pendente()
     except Exception:
-        log.exception("Sincronizacao semanal agendada falhou")
+        log.exception("Falha ao consultar a fila de pedidos de sync")
+        return
+    if not pedido:
+        return
+
+    # Nao bloqueia: se uma sync (automatica ou outra manual) esta rodando,
+    # deixa o pedido na fila e tenta de novo na proxima verificacao.
+    if not _sync_lock.acquire(blocking=False):
+        log.info("Sync em andamento; pedido %s aguarda proxima verificacao", pedido["id"])
+        return
+    try:
+        log.info("Processando pedido de sync manual %s (dias=%s)", pedido["id"], pedido["dias"])
+        atualizar_pedido_sync(pedido["id"], "processando", "Rodando no PC...")
+        try:
+            resultado = executar(dias=pedido["dias"], headless=True, notificar=False)
+            msg = f"{resultado.get('novos', 0)} novo(s), {resultado.get('atualizados', 0)} atualizado(s)"
+            atualizar_pedido_sync(pedido["id"], "concluido", msg)
+            log.info("Pedido %s concluido: %s", pedido["id"], msg)
+        except Exception as e:
+            atualizar_pedido_sync(pedido["id"], "falhou", str(e))
+            log.exception("Pedido de sync manual %s falhou", pedido["id"])
+    finally:
+        _sync_lock.release()
 
 
 def job_mensal_ano_corrente():
     hoje = date.today()
     log.info("Disparando resincronizacao mensal do ano corrente (01/%s a %s)", hoje.year, hoje)
     resultado, erro = None, None
-    try:
-        resultado = rodar_backfill(date(hoje.year, 1, 1), hoje)
-    except Exception as e:
-        erro = str(e)
-        log.exception("Resincronizacao mensal falhou")
+    with _sync_lock:
+        try:
+            resultado = rodar_backfill(date(hoje.year, 1, 1), hoje)
+        except Exception as e:
+            erro = str(e)
+            log.exception("Resincronizacao mensal falhou")
     _notificar(resultado, erro)
 
 
@@ -88,23 +135,37 @@ def job_fechamento_ano_anterior():
     ano_anterior = hoje.year - 1
     log.info("Disparando resincronizacao de fechamento do ano %s", ano_anterior)
     resultado, erro = None, None
-    try:
-        resultado = rodar_backfill(date(ano_anterior, 1, 1), date(ano_anterior, 12, 31))
-    except Exception as e:
-        erro = str(e)
-        log.exception("Resincronizacao de fechamento de ano falhou")
+    with _sync_lock:
+        try:
+            resultado = rodar_backfill(date(ano_anterior, 1, 1), date(ano_anterior, 12, 31))
+        except Exception as e:
+            erro = str(e)
+            log.exception("Resincronizacao de fechamento de ano falhou")
     _notificar(resultado, erro)
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
+    try:
+        init_db()  # garante que a tabela pedidos_sync existe
+    except Exception:
+        log.exception("Falha ao inicializar o banco no arranque do scheduler")
     scheduler = BlockingScheduler(timezone="America/Sao_Paulo")
     scheduler.add_job(job_semanal, CronTrigger(day_of_week="fri", hour=7, minute=59))
     scheduler.add_job(job_mensal_ano_corrente, CronTrigger(day=1, hour=8, minute=30))
     scheduler.add_job(job_fechamento_ano_anterior, CronTrigger(month=2, day=1, hour=8, minute=30))
+    # Verifica a fila de pedidos manuais (botao do dashboard) a cada 20s.
+    # coalesce + max_instances=1 evitam acumular execucoes se uma demorar.
+    scheduler.add_job(
+        job_processar_pedidos,
+        IntervalTrigger(seconds=20),
+        coalesce=True,
+        max_instances=1,
+    )
     log.info(
         "Agendador iniciado. Rotinas: sexta 07:59 (semanal), dia 1 de cada mes 08:30 "
-        "(ano corrente), 1/fev 08:30 (fechamento ano anterior). Timezone America/Sao_Paulo."
+        "(ano corrente), 1/fev 08:30 (fechamento ano anterior), fila de pedidos manuais "
+        "a cada 20s. Timezone America/Sao_Paulo."
     )
     try:
         scheduler.start()

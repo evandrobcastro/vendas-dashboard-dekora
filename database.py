@@ -81,6 +81,21 @@ CREATE TABLE IF NOT EXISTS metas (
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tipo_kpi, vendedor, ano_mes)
 );
+
+-- Fila de pedidos de sincronizacao manual. O dashboard na nuvem NAO consegue
+-- rodar o Selenium (nao tem Chrome), entao o botao "Sincronizar agora" so
+-- registra um pedido aqui. O scheduler.py, que roda no PC 24/7, verifica esta
+-- fila a cada poucos segundos e executa a sincronizacao de verdade no PC,
+-- atualizando o status (pendente -> processando -> concluido/falhou).
+CREATE TABLE IF NOT EXISTS pedidos_sync (
+    id SERIAL PRIMARY KEY,
+    solicitado_por TEXT,
+    dias INTEGER NOT NULL DEFAULT 7,
+    status TEXT NOT NULL DEFAULT 'pendente',
+    mensagem TEXT,
+    solicitado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -100,6 +115,92 @@ def init_db() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(SCHEMA)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Fila de pedidos de sincronizacao (ponte nuvem -> PC)
+# ---------------------------------------------------------------------------
+def criar_pedido_sync(solicitado_por: str | None, dias: int = 7) -> None:
+    """Registra um pedido de sincronizacao (chamado pelo dashboard)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO pedidos_sync (solicitado_por, dias, status) "
+                "VALUES (%s, %s, 'pendente')",
+                (solicitado_por, max(int(dias), 0)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def pedido_sync_em_andamento() -> bool:
+    """True se ja existe um pedido pendente ou processando (evita duplicar)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pedidos_sync "
+                "WHERE status IN ('pendente', 'processando') LIMIT 1"
+            )
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def ultimo_pedido_sync() -> dict | None:
+    """Ultimo pedido (para mostrar status/resultado no dashboard)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status, mensagem, atualizado_em, solicitado_por "
+                "FROM pedidos_sync ORDER BY id DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {
+        "id": row[0],
+        "status": row[1],
+        "mensagem": row[2],
+        "atualizado_em": row[3],
+        "solicitado_por": row[4],
+    }
+
+
+def proximo_pedido_pendente() -> dict | None:
+    """Pedido pendente mais antigo (consumido pelo scheduler no PC)."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, dias FROM pedidos_sync "
+                "WHERE status = 'pendente' ORDER BY id ASC LIMIT 1"
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {"id": row[0], "dias": row[1]}
+
+
+def atualizar_pedido_sync(pedido_id: int, status: str, mensagem: str | None = None) -> None:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pedidos_sync SET status = %s, mensagem = %s, "
+                "atualizado_em = CURRENT_TIMESTAMP WHERE id = %s",
+                (status, (mensagem or "")[:500], pedido_id),
+            )
         conn.commit()
     finally:
         conn.close()
