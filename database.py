@@ -4,6 +4,8 @@ Schema e helpers de acesso ao banco.
 Fonte de verdade: Postgres no Supabase (DATABASE_URL via .env), compartilhado
 entre o pipeline local (PC roda Selenium + grava dados) e o dashboard
 hospedado na web (le os mesmos dados). Ver Sprint 6.
+
+Inclui a fila pedidos_sync (ponte nuvem->PC para o botao "Sincronizar agora").
 """
 import os
 from pathlib import Path
