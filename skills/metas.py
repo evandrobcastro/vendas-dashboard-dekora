@@ -15,11 +15,18 @@ from database import get_connection, init_db  # noqa: E402
 
 VENDEDOR_GERAL = "GERAL"
 
+# Chaves canonicas usadas pelas caixas da aba "Comercial". Cadastrar uma meta
+# com uma destas chaves (vendedor=GERAL) faz a caixa correspondente mostrar o
+# comparativo "% da meta".
 TIPOS_KPI_SUGERIDOS = [
     "valor_vendas",
     "ticket_medio",
     "qtd_vendas",
-    "taxa_aprovacao",
+    "taxa_conversao",
+    "valor_orcamentos",
+    "ticket_medio_orcamentos",
+    "qtd_orcamentos",
+    "forecast_vendas",
 ]
 
 

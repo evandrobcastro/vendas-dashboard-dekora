@@ -127,6 +127,13 @@ st.markdown(
     .cd-delta { font-size: 12px; font-weight: 700; margin-top: 2px; }
     .cd-delta-up { color: var(--verde); }
     .cd-delta-down { color: var(--vermelho); }
+    .cd-delta-neutro { color: var(--madeira); font-weight: 600; }
+
+    /* Cola o texto comparativo (% da meta) logo abaixo da caixa de KPI,
+       removendo o vao vertical padrao do Streamlit entre os dois blocos. */
+    div[data-testid="stMetric"] { margin-bottom: 0 !important; }
+    div[data-testid="stElementContainer"]:has(.cd-delta) { margin-top: -14px; }
+    .cd-delta { margin-bottom: 10px; }
 
     /* Barra preta no topo do conteudo, com logo negativo + titulo */
     .cd-topbar {
@@ -427,23 +434,29 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # Aplica filtros
 # ---------------------------------------------------------------------------
-df_filtrado = df.copy()
+# Filtros nao-temporais (vendedor/cidade/situacao/valor). Ficam separados do
+# recorte de periodo porque o "Forecast de vendas" usa uma janela propria
+# (orcamentos dos ultimos 30 dias), independente do periodo selecionado.
+df_base = df.copy()
+if vendedores_sel:
+    df_base = df_base[df_base["vendedor"].isin(vendedores_sel)]
+if cidades_sel:
+    df_base = df_base[df_base["cidade"].isin(cidades_sel)]
+if situacoes_sel:
+    df_base = df_base[df_base["situacao"].isin(situacoes_sel)]
+if valor_min_sel is not None:
+    df_base = df_base[df_base["valor"] >= valor_min_sel]
+if valor_max_sel is not None:
+    df_base = df_base[df_base["valor"] <= valor_max_sel]
+
+# Recorte do periodo selecionado (vendas por aprovacao, orcamentos por cadastro)
+df_filtrado = df_base.copy()
 if not df.empty and periodo and len(periodo) == 2:
     inicio, fim = periodo
     df_filtrado = df_filtrado[
         (df_filtrado["data_referencia"].dt.date >= inicio)
         & (df_filtrado["data_referencia"].dt.date <= fim)
     ]
-if vendedores_sel:
-    df_filtrado = df_filtrado[df_filtrado["vendedor"].isin(vendedores_sel)]
-if cidades_sel:
-    df_filtrado = df_filtrado[df_filtrado["cidade"].isin(cidades_sel)]
-if valor_min_sel is not None:
-    df_filtrado = df_filtrado[df_filtrado["valor"] >= valor_min_sel]
-if valor_max_sel is not None:
-    df_filtrado = df_filtrado[df_filtrado["valor"] <= valor_max_sel]
-if situacoes_sel:
-    df_filtrado = df_filtrado[df_filtrado["situacao"].isin(situacoes_sel)]
 
 # ---------------------------------------------------------------------------
 # Conteudo principal
@@ -459,34 +472,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-aba_tabela, aba_graficos, aba_kpis, aba_metas, aba_log = st.tabs(
-    ["Tabela", "Gráficos", "KPIs", "Metas", "Log de sincronização"]
+aba_tabela, aba_kpis, aba_metas, aba_log = st.tabs(
+    ["Tabela", "Comercial", "Metas", "Log de sincronização"]
 )
 
 with aba_tabela:
     st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
-
-with aba_graficos:
-    df_vendas = df_filtrado[df_filtrado["tipo"] == "venda"].copy()
-    if df_vendas.empty:
-        st.info("Sem vendas no filtro selecionado.")
-    else:
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Vendas por mês")
-            df_vendas["mes"] = df_vendas["data_aprovacao"].dt.to_period("M").astype(str)
-            por_mes = df_vendas.groupby("mes")["valor"].sum().sort_index()
-            st.bar_chart(por_mes, color="#8B3C05")
-
-        with col2:
-            st.subheader("Top vendedores")
-            top_vendedores = df_vendas.groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(10)
-            st.bar_chart(top_vendedores, color="#8B3C05")
-
-        st.subheader("Top cidades")
-        top_cidades = df_vendas.groupby("cidade")["valor"].sum().sort_values(ascending=False).head(10)
-        st.bar_chart(top_cidades, color="#8B3C05")
 
 def _badge_situacao(situacao: str) -> str:
     s = (situacao or "").strip().lower()
@@ -507,58 +498,114 @@ def _kpis_periodo(frame: pd.DataFrame) -> dict:
     vendas = frame[frame["tipo"] == "venda"]
     orcamentos = frame[frame["tipo"] == "orcamento"]
     abertos = orcamentos[~orcamentos["situacao"].str.lower().str.contains("cancelad", na=False)]
+
     total_vendido = vendas["valor"].sum()
     qtd_vendas = len(vendas)
     ticket_medio = total_vendido / qtd_vendas if qtd_vendas else 0
+
+    total_orcado = orcamentos["valor"].sum()
+    qtd_orcamentos = len(orcamentos)
+    ticket_medio_orcamentos = total_orcado / qtd_orcamentos if qtd_orcamentos else 0
+
     qtd_orcamentos_abertos = len(abertos)
-    base_conversao = qtd_vendas + qtd_orcamentos_abertos
-    taxa_conversao = (qtd_vendas / base_conversao * 100) if base_conversao else 0
+    # Taxa de conversao por VALOR: R$ vendido / R$ orcado no periodo.
+    taxa_conversao = (total_vendido / total_orcado * 100) if total_orcado else 0
     return {
         "total_vendido": total_vendido,
         "ticket_medio": ticket_medio,
-        "orcamentos_abertos": qtd_orcamentos_abertos,
+        "qtd_vendas": qtd_vendas,
         "taxa_conversao": taxa_conversao,
+        "total_orcado": total_orcado,
+        "ticket_medio_orcamentos": ticket_medio_orcamentos,
+        "qtd_orcamentos": qtd_orcamentos,
+        "orcamentos_abertos": qtd_orcamentos_abertos,
     }
 
 
-def _delta_html(atual: float, anterior: float, sufixo: str = "") -> str:
-    if not anterior:
-        return ""
-    variacao = (atual - anterior) / anterior * 100
-    seta = "▲" if variacao >= 0 else "▼"
-    classe = "cd-delta-up" if variacao >= 0 else "cd-delta-down"
-    return f'<div class="cd-delta {classe}">{seta} {abs(variacao):.1f}{sufixo} vs. período anterior</div>'
+def _meta_delta_html(metas_geral_mes: pd.DataFrame, tipo_kpi: str, realizado: float, fmt) -> str:
+    """Comparativo da caixa de KPI com a meta GERAL do mes para esse KPI.
+
+    Substitui o antigo comparativo "vs. periodo anterior". Se nao houver meta
+    cadastrada para o KPI no mes corrente, mostra um aviso discreto.
+    """
+    linha = (
+        metas_geral_mes[metas_geral_mes["tipo_kpi"] == tipo_kpi]
+        if not metas_geral_mes.empty
+        else pd.DataFrame()
+    )
+    if linha.empty or not float(linha.iloc[0]["valor_meta"]):
+        return '<div class="cd-delta cd-delta-neutro">sem meta para este mês</div>'
+    meta = float(linha.iloc[0]["valor_meta"])
+    pct = realizado / meta * 100
+    atingiu = realizado >= meta
+    seta = "▲" if atingiu else "▼"
+    classe = "cd-delta-up" if atingiu else "cd-delta-down"
+    return f'<div class="cd-delta {classe}">{seta} {pct:.0f}% da meta ({fmt(meta)})</div>'
 
 
 with aba_kpis:
+    from metas import listar_metas, VENDEDOR_GERAL
+
     atual = _kpis_periodo(df_filtrado)
 
-    # Periodo imediatamente anterior, de mesma duracao, para comparacao
-    anterior_kpis = {}
-    if not df.empty and periodo and len(periodo) == 2:
-        inicio, fim = periodo
-        duracao = (fim - inicio).days + 1
-        fim_anterior = inicio - timedelta(days=1)
-        inicio_anterior = fim_anterior - timedelta(days=duracao - 1)
-        df_periodo_anterior = df[
-            (df["data_referencia"].dt.date >= inicio_anterior)
-            & (df["data_referencia"].dt.date <= fim_anterior)
+    # Forecast de vendas: valor dos orcamentos cadastrados nos ultimos 30 dias
+    # (independente do periodo selecionado) multiplicado pela taxa de conversao.
+    forecast = 0.0
+    if not df.empty:
+        limite_30 = date.today() - timedelta(days=30)
+        orc_30d = df_base[
+            (df_base["tipo"] == "orcamento")
+            & (df_base["data_cadastro"].dt.date >= limite_30)
         ]
-        anterior_kpis = _kpis_periodo(df_periodo_anterior)
+        forecast = orc_30d["valor"].sum() * atual["taxa_conversao"] / 100
 
+    # Metas GERAL do mes corrente — base do comparativo de cada caixa.
+    mes_atual = date.today().strftime("%Y-%m")
+    metas_df = listar_metas()
+    metas_geral_mes = (
+        metas_df[(metas_df["vendedor"] == VENDEDOR_GERAL) & (metas_df["ano_mes"] == mes_atual)]
+        if not metas_df.empty
+        else pd.DataFrame()
+    )
+
+    moeda = lambda v: f"R$ {v:,.0f}"
+    inteiro = lambda v: f"{v:,.0f}".replace(",", ".")
+    pct_fmt = lambda v: f"{v:.0f}%"
+
+    # Linha 1 — Vendas
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.metric("Vendas no período", f"R$ {atual['total_vendido']:,.2f}")
-        st.markdown(_delta_html(atual["total_vendido"], anterior_kpis.get("total_vendido", 0)), unsafe_allow_html=True)
+        st.markdown(_meta_delta_html(metas_geral_mes, "valor_vendas", atual["total_vendido"], moeda), unsafe_allow_html=True)
     with c2:
         st.metric("Ticket médio", f"R$ {atual['ticket_medio']:,.2f}")
-        st.markdown(_delta_html(atual["ticket_medio"], anterior_kpis.get("ticket_medio", 0)), unsafe_allow_html=True)
+        st.markdown(_meta_delta_html(metas_geral_mes, "ticket_medio", atual["ticket_medio"], moeda), unsafe_allow_html=True)
     with c3:
-        st.metric("Orçamentos abertos", atual["orcamentos_abertos"])
-        st.markdown(_delta_html(atual["orcamentos_abertos"], anterior_kpis.get("orcamentos_abertos", 0)), unsafe_allow_html=True)
+        st.metric("Número de pedidos", inteiro(atual["qtd_vendas"]),
+                  help="Quantidade de vendas (pedidos com status aprovado/fechado) no período.")
+        st.markdown(_meta_delta_html(metas_geral_mes, "qtd_vendas", atual["qtd_vendas"], inteiro), unsafe_allow_html=True)
     with c4:
         st.metric("Taxa de conversão", f"{atual['taxa_conversao']:.0f}%")
-        st.markdown(_delta_html(atual["taxa_conversao"], anterior_kpis.get("taxa_conversao", 0), sufixo=" p.p."), unsafe_allow_html=True)
+        st.markdown(_meta_delta_html(metas_geral_mes, "taxa_conversao", atual["taxa_conversao"], pct_fmt), unsafe_allow_html=True)
+
+    # Linha 2 — Orçamentos
+    c5, c6, c7, c8 = st.columns(4)
+    with c5:
+        st.metric("Orçamentos no período", f"R$ {atual['total_orcado']:,.2f}",
+                  help="Valor total dos orçamentos cadastrados no período.")
+        st.markdown(_meta_delta_html(metas_geral_mes, "valor_orcamentos", atual["total_orcado"], moeda), unsafe_allow_html=True)
+    with c6:
+        st.metric("Ticket médio de orçamentos", f"R$ {atual['ticket_medio_orcamentos']:,.2f}",
+                  help="Valor total de orçamentos dividido pelo número de orçamentos no período.")
+        st.markdown(_meta_delta_html(metas_geral_mes, "ticket_medio_orcamentos", atual["ticket_medio_orcamentos"], moeda), unsafe_allow_html=True)
+    with c7:
+        st.metric("Número total de orçamentos", inteiro(atual["qtd_orcamentos"]),
+                  help="Quantidade de orçamentos cadastrados no período.")
+        st.markdown(_meta_delta_html(metas_geral_mes, "qtd_orcamentos", atual["qtd_orcamentos"], inteiro), unsafe_allow_html=True)
+    with c8:
+        st.metric("Forecast de vendas", f"R$ {forecast:,.2f}",
+                  help="Valor dos orçamentos cadastrados nos últimos 30 dias × taxa de conversão.")
+        st.markdown(_meta_delta_html(metas_geral_mes, "forecast_vendas", forecast, moeda), unsafe_allow_html=True)
 
     st.write("")
     col_graf, col_rank = st.columns([1.3, 1])
@@ -605,13 +652,23 @@ with aba_kpis:
                 unsafe_allow_html=True,
             )
 
-    from metas import listar_metas, VENDEDOR_GERAL
-
-    mes_atual = date.today().strftime("%Y-%m")
-    metas_df = listar_metas()
-    metas_geral_mes = metas_df[
-        (metas_df["vendedor"] == VENDEDOR_GERAL) & (metas_df["ano_mes"] == mes_atual)
-    ] if not metas_df.empty else pd.DataFrame()
+    # "metas_geral_mes", "moeda", "inteiro" e "pct_fmt" ja foram definidos no
+    # topo desta aba. Mapas para casar cada meta cadastrada com seu realizado.
+    realizado_por_kpi = {
+        "valor_vendas": atual["total_vendido"],
+        "ticket_medio": atual["ticket_medio"],
+        "qtd_vendas": atual["qtd_vendas"],
+        "taxa_conversao": atual["taxa_conversao"],
+        "valor_orcamentos": atual["total_orcado"],
+        "ticket_medio_orcamentos": atual["ticket_medio_orcamentos"],
+        "qtd_orcamentos": atual["qtd_orcamentos"],
+        "forecast_vendas": forecast,
+    }
+    fmt_por_kpi = {
+        "valor_vendas": moeda, "ticket_medio": moeda, "valor_orcamentos": moeda,
+        "ticket_medio_orcamentos": moeda, "forecast_vendas": moeda,
+        "taxa_conversao": pct_fmt, "qtd_vendas": inteiro, "qtd_orcamentos": inteiro,
+    }
 
     if metas_geral_mes.empty:
         st.markdown(
@@ -623,15 +680,9 @@ with aba_kpis:
         linhas_meta = ""
         for _, linha in metas_geral_mes.iterrows():
             meta_valor = float(linha["valor_meta"])
-            if linha["tipo_kpi"] == "valor_vendas":
-                realizado = atual["total_vendido"]
-                fmt = lambda v: f"R$ {v:,.0f}"
-            elif linha["tipo_kpi"] == "ticket_medio":
-                realizado = atual["ticket_medio"]
-                fmt = lambda v: f"R$ {v:,.0f}"
-            else:
-                realizado = 0
-                fmt = lambda v: f"{v:,.0f}"
+            tipo_kpi_linha = linha["tipo_kpi"]
+            realizado = realizado_por_kpi.get(tipo_kpi_linha, 0)
+            fmt = fmt_por_kpi.get(tipo_kpi_linha, inteiro)
             pct = min(realizado / meta_valor * 100, 100) if meta_valor else 0
             linhas_meta += (
                 '<div class="cd-progress-row">'
