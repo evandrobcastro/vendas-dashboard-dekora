@@ -54,6 +54,19 @@ st.markdown(
 
     .stApp, .stApp * { font-family: 'Aileron', 'Montserrat', sans-serif; }
 
+    /* A regra '*' acima sobrescreve a fonte de icones do Streamlit (Material
+       Symbols), fazendo o nome do icone aparecer como texto cru — ex.:
+       "keyboard_double_arrow_left" no botao de recolher a barra lateral e
+       "arrow_..." no painel "Administracao". Aqui restauramos a fonte de
+       icone apenas nesses elementos. */
+    .stApp [data-testid="stIconMaterial"],
+    .stApp span[data-testid="stIconMaterial"],
+    .stApp [class*="material-symbols"],
+    .stApp [class*="material-icons"] {
+        font-family: 'Material Symbols Rounded', 'Material Symbols Outlined',
+                     'Material Icons' !important;
+    }
+
     .stApp { background-color: var(--areia); }
 
     /* Cartoes genericos (top vendedores, metas, registros recentes) */
