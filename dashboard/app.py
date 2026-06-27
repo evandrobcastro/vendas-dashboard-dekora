@@ -4,6 +4,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+import altair as alt
 import bcrypt
 import pandas as pd
 import streamlit as st
@@ -92,6 +93,11 @@ st.markdown(
     .cd-bar-value { font-size: 12px; font-weight: 700; color: var(--preto); margin-bottom: 4px; }
     .cd-bar-shape { width: 70%; max-width: 42px; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, #C9712E 0%, var(--terracota) 100%); }
     .cd-bar-label { font-size: 11px; color: var(--madeira); margin-top: 6px; font-weight: 600; }
+
+    /* Legenda manual do grafico "projetado vs realizado" (combina com o
+       gradiente das barras, que o Vega-Lite nao consegue exibir na legenda). */
+    .cd-chart-legend { display: flex; gap: 22px; justify-content: center; margin-top: -8px; font-size: 12px; font-weight: 600; color: var(--madeira); }
+    .cd-chart-legend i { display: inline-block; width: 13px; height: 13px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
     /* Ranking de vendedores com barras horizontais */
     .cd-rank-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -608,49 +614,129 @@ with aba_kpis:
         st.markdown(_meta_delta_html(metas_geral_mes, "forecast_vendas", forecast, moeda), unsafe_allow_html=True)
 
     st.write("")
-    col_graf, col_rank = st.columns([1.3, 1])
 
-    with col_graf:
-        df_vendas_kpi = df_filtrado[df_filtrado["tipo"] == "venda"].copy()
-        if df_vendas_kpi.empty:
-            st.markdown('<div class="cd-card"><h4>Vendas por mês</h4>Sem vendas no filtro selecionado.</div>', unsafe_allow_html=True)
-        else:
-            df_vendas_kpi["mes"] = df_vendas_kpi["data_aprovacao"].dt.to_period("M")
-            por_mes = df_vendas_kpi.groupby("mes")["valor"].sum().sort_index().tail(6)
-            maximo = por_mes.max() or 1
-            barras = "".join(
-                f'<div class="cd-bar-col">'
-                f'<div class="cd-bar-value">R$ {valor/1000:,.0f}k</div>'
-                f'<div class="cd-bar-shape" style="height:{max(valor/maximo*100, 4):.0f}%"></div>'
-                f'<div class="cd-bar-label">{mes.strftime("%b").capitalize()}</div>'
-                f'</div>'
-                for mes, valor in por_mes.items()
-            )
-            st.markdown(
-                f'<div class="cd-card"><h4>Vendas por mês</h4><div class="cd-bars">{barras}</div></div>',
-                unsafe_allow_html=True,
+    # --- Vendas: projetado (metas) vs realizado, por mes do ano corrente ---
+    # Ocupa a largura inteira porque sao 12 meses com duas barras cada.
+    ano = date.today().year
+    meses_labels = ["jan", "fev", "mar", "abr", "mai", "jun",
+                    "jul", "ago", "set", "out", "nov", "dez"]
+
+    # Vendas realizadas por mes (respeita os filtros nao-temporais; a janela
+    # e sempre o ano corrente, independente do periodo selecionado na barra).
+    vendas_ano = df_base[
+        (df_base["tipo"] == "venda") & (df_base["data_aprovacao"].dt.year == ano)
+    ]
+    vendas_por_mes = vendas_ano.groupby(vendas_ano["data_aprovacao"].dt.month)["valor"].sum()
+
+    # Metas de valor_vendas (GERAL) por mes do ano corrente.
+    metas_vendas = (
+        metas_df[
+            (metas_df["vendedor"] == VENDEDOR_GERAL)
+            & (metas_df["tipo_kpi"] == "valor_vendas")
+            & (metas_df["ano_mes"].str.startswith(f"{ano}-"))
+        ]
+        if not metas_df.empty
+        else pd.DataFrame(columns=["ano_mes", "valor_meta"])
+    )
+    metas_por_mes = {
+        int(am.split("-")[1]): float(v)
+        for am, v in zip(metas_vendas["ano_mes"], metas_vendas["valor_meta"])
+    }
+
+    linhas_chart = []
+    for m in range(1, 13):
+        linhas_chart.append({"mes": meses_labels[m - 1], "Série": "Vendas",
+                             "valor": float(vendas_por_mes.get(m, 0.0))})
+        linhas_chart.append({"mes": meses_labels[m - 1], "Série": "Metas",
+                             "valor": float(metas_por_mes.get(m, 0.0))})
+    chart_df = pd.DataFrame(linhas_chart)
+
+    if chart_df["valor"].sum() == 0:
+        st.markdown(
+            '<div class="cd-card"><h4>Vendas — projetado vs realizado</h4>'
+            'Sem vendas nem metas cadastradas para este ano.</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # Gradientes terracota (Vendas) e cinza (Metas), no espirito do grafico
+        # anterior; cantos superiores arredondados e rotulos "R$ Xk" escuros.
+        def _grad(cor_base, cor_topo):
+            return {
+                "gradient": "linear", "x1": 0, "y1": 1, "x2": 0, "y2": 0,
+                "stops": [
+                    {"offset": 0, "color": cor_base},
+                    {"offset": 1, "color": cor_topo},
+                ],
+            }
+
+        # Gradiente nao e aceito no range de cor (schema do Vega-Lite), entao
+        # cada serie e uma camada propria com o gradiente no preenchimento.
+        base_chart = alt.Chart(chart_df).transform_calculate(
+            rotulo="'R$ ' + format(datum.valor / 1000, ',.0f') + 'k'"
+        ).encode(
+            x=alt.X("mes:N", sort=meses_labels, title=None, axis=alt.Axis(labelAngle=0)),
+            xOffset=alt.XOffset("Série:N", scale=alt.Scale(domain=["Vendas", "Metas"])),
+            y=alt.Y("valor:Q", title=None, axis=alt.Axis(format="~s")),
+        )
+
+        def _camada_barras(serie, gradiente):
+            return base_chart.transform_filter(
+                alt.datum["Série"] == serie
+            ).mark_bar(
+                cornerRadiusTopLeft=4, cornerRadiusTopRight=4, fill=gradiente,
+            ).encode(
+                tooltip=[
+                    alt.Tooltip("mes:N", title="Mês"),
+                    alt.Tooltip("Série:N", title="Série"),
+                    alt.Tooltip("valor:Q", title="Valor", format=",.0f"),
+                ],
             )
 
-    with col_rank:
-        df_vendas_kpi = df_filtrado[df_filtrado["tipo"] == "venda"]
-        if df_vendas_kpi.empty:
-            st.markdown('<div class="cd-card"><h4>Top vendedores</h4>Sem vendas no filtro selecionado.</div>', unsafe_allow_html=True)
-        else:
-            top = df_vendas_kpi.groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(4)
-            maximo_top = top.max() or 1
-            linhas = "".join(
-                f'<div class="cd-rank-row">'
-                f'<div class="cd-rank-num">{i}</div>'
-                f'<div class="cd-rank-name">{nome}</div>'
-                f'<div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:{valor/maximo_top*100:.0f}%"></div></div>'
-                f'<div class="cd-rank-value">R$ {valor/1000:,.0f}k</div>'
-                f'</div>'
-                for i, (nome, valor) in enumerate(top.items(), start=1)
-            )
-            st.markdown(
-                f'<div class="cd-card"><h4>Top vendedores</h4>{linhas}</div>',
-                unsafe_allow_html=True,
-            )
+        barras_vendas = _camada_barras("Vendas", _grad("#8B3C05", "#C9712E"))
+        barras_metas = _camada_barras("Metas", _grad("#A89B89", "#C7BCAE"))
+        rotulos = base_chart.mark_text(
+            dy=-6, fontSize=11, fontWeight="bold", color="#000000",
+        ).encode(
+            text=alt.Text("rotulo:N"),
+            opacity=alt.condition("datum.valor > 0", alt.value(1), alt.value(0)),
+        )
+        grafico = (barras_vendas + barras_metas + rotulos).properties(
+            height=320,
+            title=alt.TitleParams(
+                "Vendas — projetado vs realizado",
+                anchor="start", fontSize=14, fontWeight="bold", color="#000000",
+            ),
+        )
+        st.altair_chart(grafico, use_container_width=True)
+        # Legenda manual, combinando com o gradiente das barras.
+        st.markdown(
+            '<div class="cd-chart-legend">'
+            '<span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Vendas</span>'
+            '<span><i style="background:linear-gradient(180deg,#C7BCAE,#A89B89)"></i>Metas</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    # --- Top vendedores (mesmo periodo dos filtros) ---
+    df_vendas_kpi = df_filtrado[df_filtrado["tipo"] == "venda"]
+    if df_vendas_kpi.empty:
+        st.markdown('<div class="cd-card"><h4>Top vendedores</h4>Sem vendas no filtro selecionado.</div>', unsafe_allow_html=True)
+    else:
+        top = df_vendas_kpi.groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(4)
+        maximo_top = top.max() or 1
+        linhas = "".join(
+            f'<div class="cd-rank-row">'
+            f'<div class="cd-rank-num">{i}</div>'
+            f'<div class="cd-rank-name">{nome}</div>'
+            f'<div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:{valor/maximo_top*100:.0f}%"></div></div>'
+            f'<div class="cd-rank-value">R$ {valor/1000:,.0f}k</div>'
+            f'</div>'
+            for i, (nome, valor) in enumerate(top.items(), start=1)
+        )
+        st.markdown(
+            f'<div class="cd-card"><h4>Top vendedores</h4>{linhas}</div>',
+            unsafe_allow_html=True,
+        )
 
     # "metas_geral_mes", "moeda", "inteiro" e "pct_fmt" ja foram definidos no
     # topo desta aba. Mapas para casar cada meta cadastrada com seu realizado.
