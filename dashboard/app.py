@@ -763,83 +763,36 @@ with aba_kpis:
             unsafe_allow_html=True,
         )
 
-    # --- Top vendedores (mesmo periodo dos filtros) ---
-    df_vendas_kpi = df_filtrado[df_filtrado["tipo"] == "venda"]
-    if df_vendas_kpi.empty:
-        st.markdown('<div class="cd-card"><h4>Top vendedores</h4>Sem vendas no filtro selecionado.</div>', unsafe_allow_html=True)
-    else:
-        top = df_vendas_kpi.groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(4)
-        maximo_top = top.max() or 1
+    # --- Rankings por vendedor (mesmo periodo/filtros), lado a lado ---
+    # Esquerda: vendas por vendedor; direita: orcamentos por vendedor.
+    def _ranking_html(titulo, serie):
+        if serie.empty:
+            return f'<div class="cd-card"><h4>{titulo}</h4>Sem dados no filtro selecionado.</div>'
+        maximo = serie.max() or 1
         linhas = "".join(
             f'<div class="cd-rank-row">'
             f'<div class="cd-rank-num">{i}</div>'
             f'<div class="cd-rank-name">{nome}</div>'
-            f'<div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:{valor/maximo_top*100:.0f}%"></div></div>'
+            f'<div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:{valor/maximo*100:.0f}%"></div></div>'
             f'<div class="cd-rank-value">R$ {valor/1000:,.0f}k</div>'
             f'</div>'
-            for i, (nome, valor) in enumerate(top.items(), start=1)
+            for i, (nome, valor) in enumerate(serie.items(), start=1)
         )
-        st.markdown(
-            f'<div class="cd-card"><h4>Top vendedores</h4>{linhas}</div>',
-            unsafe_allow_html=True,
-        )
+        return f'<div class="cd-card"><h4>{titulo}</h4>{linhas}</div>'
 
-    # "metas_df", "meses_periodo", "vendedores_alvo", "moeda", "inteiro" e
-    # "pct_fmt" ja foram definidos no topo desta aba. Mapas para casar cada
-    # meta cadastrada com seu realizado (mesma agregacao das caixas).
-    realizado_por_kpi = {
-        "valor_vendas": atual["total_vendido"],
-        "ticket_medio": atual["ticket_medio"],
-        "qtd_vendas": atual["qtd_vendas"],
-        "taxa_conversao": atual["taxa_conversao"],
-        "valor_orcamentos": atual["total_orcado"],
-        "ticket_medio_orcamentos": atual["ticket_medio_orcamentos"],
-        "qtd_orcamentos": atual["qtd_orcamentos"],
-        "forecast_vendas": forecast,
-    }
-    fmt_por_kpi = {
-        "valor_vendas": moeda, "ticket_medio": moeda, "valor_orcamentos": moeda,
-        "ticket_medio_orcamentos": moeda, "forecast_vendas": moeda,
-        "taxa_conversao": pct_fmt, "qtd_vendas": inteiro, "qtd_orcamentos": inteiro,
-    }
-
-    metas_periodo = (
-        metas_df[
-            metas_df["ano_mes"].isin(meses_periodo)
-            & metas_df["vendedor"].isin(vendedores_alvo)
-        ]
-        if not metas_df.empty
-        else pd.DataFrame()
+    top_vendas = (
+        df_filtrado[df_filtrado["tipo"] == "venda"]
+        .groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(4)
     )
-    titulo_metas = (
-        "Metas do período — Geral"
-        if vendedores_alvo == [VENDEDOR_GERAL]
-        else "Metas do período"
+    top_orcamentos = (
+        df_filtrado[df_filtrado["tipo"] == "orcamento"]
+        .groupby("vendedor")["valor"].sum().sort_values(ascending=False).head(4)
     )
-
-    if metas_periodo.empty:
-        st.markdown(
-            f'<div class="cd-card"><h4>{titulo_metas}</h4>'
-            'Nenhuma meta cadastrada para este período. Cadastre na aba "Metas".</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        linhas_meta = ""
-        for tipo_kpi_linha in sorted(metas_periodo["tipo_kpi"].unique()):
-            meta_valor = _meta_alvo(metas_df, tipo_kpi_linha, meses_periodo, vendedores_alvo)
-            if not meta_valor:
-                continue
-            realizado = realizado_por_kpi.get(tipo_kpi_linha, 0)
-            fmt = fmt_por_kpi.get(tipo_kpi_linha, inteiro)
-            pct = min(realizado / meta_valor * 100, 100) if meta_valor else 0
-            linhas_meta += (
-                '<div class="cd-progress-row">'
-                f'<div class="cd-progress-top"><span class="cd-progress-label">{tipo_kpi_linha.replace("_", " ")}</span></div>'
-                f'<div class="cd-progress-bg"><div class="cd-progress-fill" style="width:{pct:.0f}%"></div></div>'
-                f'<div class="cd-progress-text" style="text-align:right">{fmt(realizado)} / {fmt(meta_valor)}</div>'
-                '</div>'
-            )
-        st.markdown(f'<div class="cd-card"><h4>{titulo_metas}</h4>{linhas_meta}</div>', unsafe_allow_html=True)
+    col_vend, col_orc = st.columns(2)
+    with col_vend:
+        st.markdown(_ranking_html("Top vendedores — vendas", top_vendas), unsafe_allow_html=True)
+    with col_orc:
+        st.markdown(_ranking_html("Top vendedores — orçamentos", top_orcamentos), unsafe_allow_html=True)
 
     if df_filtrado.empty:
         st.markdown('<div class="cd-card"><h4>Últimos registros</h4>Sem registros no filtro selecionado.</div>', unsafe_allow_html=True)
