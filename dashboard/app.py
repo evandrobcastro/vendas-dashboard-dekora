@@ -324,6 +324,12 @@ def carregar_dados() -> pd.DataFrame:
     conn = get_connection()
     df = pd.read_sql("SELECT * FROM registros", conn)
     conn.close()
+    # Normaliza espacos sobrando nos nomes (o ERP as vezes grava "NOME ").
+    # Sem isso, o filtro de vendedor e o casamento das metas por vendedor
+    # falham (a meta e gravada sem espaco).
+    for col in ("vendedor", "cidade", "cliente"):
+        if col in df.columns:
+            df[col] = df[col].astype("string").str.strip()
     for col in ("data_cadastro", "data_aprovacao"):
         df[col] = pd.to_datetime(df[col], errors="coerce")
     # Data de referencia para filtros de periodo: vendas (aprovado/fechado)
