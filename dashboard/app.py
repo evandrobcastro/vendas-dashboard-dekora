@@ -908,6 +908,117 @@ with aba_kpis:
         )
         st.markdown(f'<div class="cd-chart-legend">{legenda_seg}</div>', unsafe_allow_html=True)
 
+    st.write("")
+
+    # --- Comissionado vs Cliente Final: 100% empilhado (70%) + pizza % (30%) ---
+    # Categoria: "Comissionado" = campo comissionado preenchido; senao "Cliente Final".
+    CORES_COMISS = {"Comissionado": "#C9712E", "Cliente Final": "#8B3C05"}
+    ordem_comiss = ["Comissionado", "Cliente Final"]  # base -> topo
+    escala_comiss = alt.Scale(domain=ordem_comiss, range=[CORES_COMISS[c] for c in ordem_comiss])
+
+    # Apenas vendas do segmento "CLIENTE FINAL" entram nesta analise: dentro
+    # desse grupo, separa quem teve comissionado de quem nao teve.
+    _seg_norm = df_filtrado["segmento"].fillna("").astype(str).str.strip().str.upper()
+    vendas_com = df_filtrado[
+        (df_filtrado["tipo"] == "venda") & (_seg_norm == "CLIENTE FINAL")
+    ].copy()
+    _com_txt = vendas_com["comissionado"].fillna("").astype(str).str.strip()
+    vendas_com["cat_com"] = _com_txt.apply(lambda x: "Comissionado" if x else "Cliente Final")
+    vendas_com["ano_mes"] = vendas_com["data_aprovacao"].dt.strftime("%Y-%m")
+
+    col_com_emp, col_com_pizza = st.columns([7, 3])
+
+    with col_com_emp:
+        # 100% empilhado: fracao (0-1) de cada categoria dentro do mes.
+        linhas_com = []
+        for am in meses_periodo:
+            rotulo_mes = meses_pt[int(am.split("-")[1])]
+            sub = vendas_com[vendas_com["ano_mes"] == am]
+            total_mes = sub["valor"].sum()
+            if total_mes <= 0:
+                continue
+            acc = 0.0
+            for cat in ordem_comiss:
+                v = float(sub[sub["cat_com"] == cat]["valor"].sum())
+                if v <= 0:
+                    continue
+                frac = v / total_mes
+                linhas_com.append({"mes": rotulo_mes, "cat": cat, "frac": frac,
+                                   "y0": acc, "y1": acc + frac, "mid": acc + frac / 2})
+                acc += frac
+        com_df = pd.DataFrame(linhas_com)
+
+        if com_df.empty:
+            st.markdown(
+                '<div class="cd-card"><h4>Comissionado vs Cliente Final</h4>'
+                'Sem vendas no período/filtros selecionados.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            base_com = alt.Chart(com_df).encode(
+                x=alt.X("mes:N", sort=ordem_meses, title="Mês aprovação",
+                        axis=alt.Axis(labelAngle=0)),
+            )
+            barras_com = base_com.mark_bar().encode(
+                y=alt.Y("y0:Q", title=None, scale=alt.Scale(domain=[0, 1]),
+                        axis=alt.Axis(format=".0%")),
+                y2="y1:Q",
+                color=alt.Color("cat:N", scale=escala_comiss, legend=None),
+                tooltip=[alt.Tooltip("mes:N", title="Mês"),
+                         alt.Tooltip("cat:N", title="Categoria"),
+                         alt.Tooltip("frac:Q", title="%", format=".1%")],
+            )
+            _enc_com = dict(y=alt.Y("mid:Q"), text=alt.Text("frac:Q", format=".1%"))
+            halo_com = base_com.mark_text(fontSize=10, fontWeight="bold", color="#3a2410",
+                                          stroke="#3a2410", strokeWidth=3).encode(**_enc_com)
+            rot_com = base_com.mark_text(fontSize=10, fontWeight="bold",
+                                         color="white").encode(**_enc_com)
+            grafico_com = (barras_com + halo_com + rot_com).properties(
+                height=380,
+                title=alt.TitleParams("Comissionado vs Cliente Final", anchor="start",
+                                      fontSize=14, fontWeight="bold", color="#000000"),
+            )
+            st.altair_chart(grafico_com, use_container_width=True)
+
+    with col_com_pizza:
+        pie_com = (
+            vendas_com.groupby("cat_com")["valor"].sum()
+            .reindex(ordem_comiss).fillna(0).reset_index()
+        )
+        pie_com = pie_com[pie_com["valor"] > 0]
+        if pie_com.empty:
+            st.markdown('<div class="cd-card"><h4>Distribuição %</h4>Sem dados.</div>',
+                        unsafe_allow_html=True)
+        else:
+            total_com = pie_com["valor"].sum()
+            pie_com["pct"] = pie_com["valor"] / total_com * 100
+            pie_com["rotulo"] = pie_com["pct"].map(lambda p: f"{p:.0f}%")
+            base_pcom = alt.Chart(pie_com).encode(
+                theta=alt.Theta("valor:Q", stack=True),
+                order=alt.Order("valor:Q", sort="descending"),
+            )
+            arco_com = base_pcom.mark_arc(innerRadius=40, outerRadius=85).encode(
+                color=alt.Color("cat_com:N", scale=escala_comiss, legend=None),
+                tooltip=[alt.Tooltip("cat_com:N", title="Categoria"),
+                         alt.Tooltip("valor:Q", title="Valor", format=",.2f"),
+                         alt.Tooltip("pct:Q", title="%", format=".1f")],
+            )
+            txt_pcom = base_pcom.mark_text(radius=105, fontSize=10, fontWeight="bold",
+                                           color="#5b5048").encode(text=alt.Text("rotulo:N"))
+            grafico_pcom = (arco_com + txt_pcom).properties(
+                height=380,
+                title=alt.TitleParams("Distribuição %", anchor="start",
+                                      fontSize=14, fontWeight="bold", color="#000000"),
+            )
+            st.altair_chart(grafico_pcom, use_container_width=True)
+
+    if not vendas_com.empty:
+        legenda_com = "".join(
+            f'<span><i style="background:{CORES_COMISS[c]}"></i>{c}</span>'
+            for c in ordem_comiss
+        )
+        st.markdown(f'<div class="cd-chart-legend">{legenda_com}</div>', unsafe_allow_html=True)
+
 with aba_metas:
     from metas import upsert_meta, upsert_lote, listar_metas, VENDEDOR_GERAL, TIPOS_KPI_SUGERIDOS
 
