@@ -491,20 +491,6 @@ aba_tabela, aba_kpis, aba_metas, aba_log = st.tabs(
 with aba_tabela:
     st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
-def _badge_situacao(situacao: str) -> str:
-    s = (situacao or "").strip().lower()
-    if "cancelad" in s:
-        classe = "cd-badge-vermelho"
-    elif "aprovad" in s or "fechad" in s:
-        classe = "cd-badge-verde"
-    elif "aguard" in s:
-        classe = "cd-badge-amarelo"
-    elif "pré" in s or "pre-aprovad" in s or "pre aprovad" in s:
-        classe = "cd-badge-amarelo"
-    else:
-        classe = "cd-badge-neutro"
-    return f'<span class="cd-badge {classe}">{situacao}</span>'
-
 
 def _kpis_periodo(frame: pd.DataFrame) -> dict:
     vendas = frame[frame["tipo"] == "venda"]
@@ -793,32 +779,6 @@ with aba_kpis:
         st.markdown(_ranking_html("Top vendedores — vendas", top_vendas), unsafe_allow_html=True)
     with col_orc:
         st.markdown(_ranking_html("Top vendedores — orçamentos", top_orcamentos), unsafe_allow_html=True)
-
-    if df_filtrado.empty:
-        st.markdown('<div class="cd-card"><h4>Últimos registros</h4>Sem registros no filtro selecionado.</div>', unsafe_allow_html=True)
-    else:
-        coluna_ordem = "data_referencia" if "data_referencia" in df_filtrado.columns else df_filtrado.columns[0]
-        recentes = df_filtrado.sort_values(coluna_ordem, ascending=False).head(6)
-        linhas_tabela = "".join(
-            "<tr>"
-            f"<td>{r.get('codigo', '')}</td>"
-            f"<td>{str(r.get('tipo', '')).capitalize()}</td>"
-            f"<td>{r.get('cliente', '')}</td>"
-            f"<td>{r.get('vendedor', '')}</td>"
-            f"<td>{r.get('cidade', '')}</td>"
-            f"<td>R$ {float(r.get('valor') or 0):,.2f}</td>"
-            f"<td>{_badge_situacao(r.get('situacao', ''))}</td>"
-            "</tr>"
-            for _, r in recentes.iterrows()
-        )
-        st.markdown(
-            '<div class="cd-card"><h4>Últimos registros</h4>'
-            '<table class="cd-table"><thead><tr>'
-            "<th>Código</th><th>Tipo</th><th>Cliente</th><th>Vendedor</th>"
-            "<th>Cidade</th><th>Valor</th><th>Situação</th>"
-            f"</tr></thead><tbody>{linhas_tabela}</tbody></table></div>",
-            unsafe_allow_html=True,
-        )
 
 with aba_metas:
     from metas import upsert_meta, upsert_lote, listar_metas, VENDEDOR_GERAL, TIPOS_KPI_SUGERIDOS
