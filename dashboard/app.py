@@ -96,8 +96,9 @@ st.markdown(
 
     /* Legenda manual do grafico "projetado vs realizado" (combina com o
        gradiente das barras, que o Vega-Lite nao consegue exibir na legenda). */
-    .cd-chart-legend { display: flex; gap: 22px; justify-content: center; margin-top: -8px; font-size: 12px; font-weight: 600; color: var(--madeira); }
-    .cd-chart-legend i { display: inline-block; width: 13px; height: 13px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+    .cd-chart-legend { display: flex; flex-wrap: wrap; gap: 5px 16px; justify-content: center; margin-top: -6px; font-size: 10.5px; font-weight: 600; color: var(--madeira); }
+    .cd-chart-legend span { display: inline-flex; align-items: center; white-space: nowrap; }
+    .cd-chart-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; }
 
     /* Ranking de vendedores com barras horizontais */
     .cd-rank-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -779,6 +780,133 @@ with aba_kpis:
         st.markdown(_ranking_html("Top vendedores — vendas", top_vendas), unsafe_allow_html=True)
     with col_orc:
         st.markdown(_ranking_html("Top vendedores — orçamentos", top_orcamentos), unsafe_allow_html=True)
+
+    st.write("")
+
+    # --- Segmento de clientes: barras empilhadas (70%) + pizza % (30%) ---
+    # Cor FIXA por segmento, em tons da marca (terracota + neutros). A ordem
+    # (e portanto a cor) e definida pelo total geral, entao nao muda com o
+    # filtro: cada segmento mantem sempre a mesma cor.
+    PALETA_SEG = ["#8B3C05", "#C9712E", "#8A6A4A", "#B8860B", "#B9AD9E", "#D8CFC0", "#6E4B2A"]
+    vendas_all = df[df["tipo"] == "venda"].copy()
+    vendas_all["segmento"] = vendas_all["segmento"].fillna("Não informado")
+    segmentos_ordem = list(
+        vendas_all.groupby("segmento")["valor"].sum().sort_values(ascending=False).index
+    )
+    cores_seg = {s: PALETA_SEG[i % len(PALETA_SEG)] for i, s in enumerate(segmentos_ordem)}
+    escala_seg = alt.Scale(domain=segmentos_ordem, range=[cores_seg[s] for s in segmentos_ordem])
+
+    vendas_seg = df_filtrado[df_filtrado["tipo"] == "venda"].copy()
+    vendas_seg["segmento"] = vendas_seg["segmento"].fillna("Não informado")
+    vendas_seg["ano_mes"] = vendas_seg["data_aprovacao"].dt.strftime("%Y-%m")
+
+    col_emp, col_pizza = st.columns([7, 3])
+
+    with col_emp:
+        # y0/y1 calculados em pandas para empilhar e centralizar o rotulo.
+        linhas_seg = []
+        for am in meses_periodo:
+            rotulo_mes = meses_pt[int(am.split("-")[1])]
+            sub = vendas_seg[vendas_seg["ano_mes"] == am].groupby("segmento")["valor"].sum()
+            acc = 0.0
+            for seg in segmentos_ordem:
+                v = float(sub.get(seg, 0.0))
+                if v <= 0:
+                    continue
+                linhas_seg.append({
+                    "mes": rotulo_mes, "segmento": seg, "valor": v,
+                    "y0": acc, "y1": acc + v, "mid": acc + v / 2,
+                })
+                acc += v
+        seg_df = pd.DataFrame(linhas_seg)
+        if not seg_df.empty:
+            # so rotula segmentos com altura razoavel (>=5% da maior coluna),
+            # para os segmentos finos nao embolarem os rotulos.
+            limiar_rot = seg_df.groupby("mes")["valor"].sum().max() * 0.05
+            seg_df["rotular"] = seg_df["valor"] >= limiar_rot
+
+        if seg_df.empty:
+            st.markdown(
+                '<div class="cd-card"><h4>Segmento de clientes</h4>'
+                'Sem vendas no período/filtros selecionados.</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            base_seg = alt.Chart(seg_df).encode(
+                x=alt.X("mes:N", sort=ordem_meses, title="Mês aprovação",
+                        axis=alt.Axis(labelAngle=0)),
+            )
+            barras_seg = base_seg.mark_bar().encode(
+                y=alt.Y("y0:Q", title=None, axis=alt.Axis(format="~s")),
+                y2="y1:Q",
+                color=alt.Color("segmento:N", scale=escala_seg, legend=None),
+                tooltip=[alt.Tooltip("mes:N", title="Mês"),
+                         alt.Tooltip("segmento:N", title="Segmento"),
+                         alt.Tooltip("valor:Q", title="Valor", format=",.2f")],
+            )
+            # Rotulo: texto branco com halo escuro (contorno), legivel tanto
+            # sobre a barra quanto se "vazar" para o fundo branco.
+            _enc_rot = dict(
+                y=alt.Y("mid:Q"),
+                text=alt.Text("valor:Q", format=",.0f"),
+                opacity=alt.condition("datum.rotular", alt.value(1), alt.value(0)),
+            )
+            halo_seg = base_seg.mark_text(
+                fontSize=9, fontWeight="bold", color="#3a2410",
+                stroke="#3a2410", strokeWidth=3,
+            ).encode(**_enc_rot)
+            rotulos_seg = base_seg.mark_text(
+                fontSize=9, fontWeight="bold", color="white",
+            ).encode(**_enc_rot)
+            grafico_seg = (barras_seg + halo_seg + rotulos_seg).properties(
+                height=380,
+                title=alt.TitleParams("Segmento de clientes", anchor="start",
+                                      fontSize=14, fontWeight="bold", color="#000000"),
+            )
+            st.altair_chart(grafico_seg, use_container_width=True)
+
+    with col_pizza:
+        pie_df = (
+            vendas_seg.groupby("segmento")["valor"].sum()
+            .reindex(segmentos_ordem).fillna(0).reset_index()
+        )
+        pie_df = pie_df[pie_df["valor"] > 0]
+        if pie_df.empty:
+            st.markdown('<div class="cd-card"><h4>Distribuição %</h4>Sem dados.</div>',
+                        unsafe_allow_html=True)
+        else:
+            total_seg = pie_df["valor"].sum()
+            pie_df["pct"] = pie_df["valor"] / total_seg * 100
+            pie_df["rotulo"] = pie_df["pct"].map(lambda p: f"{p:.0f}%")
+            base_pie = alt.Chart(pie_df).encode(
+                theta=alt.Theta("valor:Q", stack=True),
+                order=alt.Order("valor:Q", sort="descending"),
+            )
+            arco = base_pie.mark_arc(innerRadius=40, outerRadius=85).encode(
+                color=alt.Color("segmento:N", scale=escala_seg, legend=None),
+                tooltip=[alt.Tooltip("segmento:N", title="Segmento"),
+                         alt.Tooltip("valor:Q", title="Valor", format=",.2f"),
+                         alt.Tooltip("pct:Q", title="%", format=".1f")],
+            )
+            texto_pie = base_pie.mark_text(radius=105, fontSize=10, fontWeight="bold",
+                                           color="#5b5048").encode(
+                text=alt.Text("rotulo:N"),
+            )
+            grafico_pie = (arco + texto_pie).properties(
+                height=380,
+                title=alt.TitleParams("Distribuição %", anchor="start",
+                                      fontSize=14, fontWeight="bold", color="#000000"),
+            )
+            st.altair_chart(grafico_pie, use_container_width=True)
+
+    # Legenda unica (quadrados, embaixo) para os dois graficos de segmento,
+    # no mesmo padrao da legenda do grafico de vendas.
+    if not vendas_seg.empty:
+        legenda_seg = "".join(
+            f'<span><i style="background:{cores_seg[s]}"></i>{s}</span>'
+            for s in segmentos_ordem
+        )
+        st.markdown(f'<div class="cd-chart-legend">{legenda_seg}</div>', unsafe_allow_html=True)
 
 with aba_metas:
     from metas import upsert_meta, upsert_lote, listar_metas, VENDEDOR_GERAL, TIPOS_KPI_SUGERIDOS
