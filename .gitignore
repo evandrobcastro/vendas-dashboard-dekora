@@ -4,6 +4,7 @@ venv/
 downloads/*.xlsx
 logs/*.log
 logs/*.html
+logs/*.json
 credentials.json
 token.json
 __pycache__/

@@ -8,16 +8,21 @@ Agendador: roda 3 rotinas automaticas.
      anterior (que ja foi "fechado"), garantindo que o ultimo mes dele
      ficou consistente antes de considera-lo definitivamente encerrado
 
+Alem disso, no arranque (login do Windows) faz um CATCH-UP: se o PC estava
+desligado quando uma dessas janelas passou, roda a rotina perdida uma vez.
+A data da ultima execucao de cada rotina fica em logs/ultimas_execucoes.json.
+
 Mantenha este processo rodando continuamente no PC (ver instrucoes no
 README/Sprint 6 sobre como deixa-lo iniciando junto com o Windows).
 Sincronizacao manual continua disponivel pelo botao no dashboard ou via:
   python orchestrator.py
 """
+import json
 import logging
 import os
 import sys
 import threading
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -60,6 +65,109 @@ if sys.stderr is not None:
     log.addHandler(_stream_handler)
 
 
+# ---------------------------------------------------------------------------
+# Estado de ultimas execucoes (para o catch-up no arranque)
+# ---------------------------------------------------------------------------
+_ESTADO_PATH = BASE / "logs" / "ultimas_execucoes.json"
+
+
+def _carregar_estado() -> dict:
+    try:
+        return json.loads(_ESTADO_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _marcar_execucao(chave: str) -> None:
+    """Registra que a rotina 'chave' rodou agora (usado pelo catch-up)."""
+    try:
+        estado = _carregar_estado()
+        estado[chave] = datetime.now().isoformat()
+        _ESTADO_PATH.write_text(
+            json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        log.exception("Falha ao gravar estado de execucao (%s)", chave)
+
+
+def _ocorrencia_semanal_anterior(agora: datetime) -> datetime:
+    """Ultima sexta-feira 07:59 <= agora."""
+    dias_desde_sexta = (agora.weekday() - 4) % 7  # sexta = weekday 4
+    sexta = (agora - timedelta(days=dias_desde_sexta)).replace(
+        hour=7, minute=59, second=0, microsecond=0
+    )
+    if sexta > agora:  # hoje e sexta mas ainda antes das 07:59
+        sexta -= timedelta(days=7)
+    return sexta
+
+
+def _ocorrencia_mensal_anterior(agora: datetime) -> datetime:
+    """Ultimo dia 1 de mes 08:30 <= agora."""
+    este_mes = agora.replace(day=1, hour=8, minute=30, second=0, microsecond=0)
+    if este_mes <= agora:
+        return este_mes
+    return (este_mes - timedelta(days=1)).replace(
+        day=1, hour=8, minute=30, second=0, microsecond=0
+    )
+
+
+def _ocorrencia_fechamento_anterior(agora: datetime) -> datetime:
+    """Ultimo 1 de fevereiro 08:30 <= agora."""
+    este_ano = agora.replace(month=2, day=1, hour=8, minute=30, second=0, microsecond=0)
+    if este_ano <= agora:
+        return este_ano
+    return este_ano.replace(year=agora.year - 1)
+
+
+def catch_up():
+    """No arranque, roda a(s) rotina(s) cuja janela passou enquanto o PC
+    estava desligado. Na primeira vez (sem estado) apenas registra o momento
+    atual, sem recuperar nada retroativamente."""
+    agora = datetime.now()
+    estado = _carregar_estado()
+
+    if not estado:  # primeira execucao apos implementar o catch-up
+        for chave in ("semanal", "mensal", "fechamento"):
+            _marcar_execucao(chave)
+        log.info("Catch-up: estado inicial registrado (sem recuperacao na 1a vez).")
+        return
+
+    ocorrencias = {
+        "semanal": _ocorrencia_semanal_anterior(agora),
+        "mensal": _ocorrencia_mensal_anterior(agora),
+        "fechamento": _ocorrencia_fechamento_anterior(agora),
+    }
+
+    def _perdeu(chave: str) -> bool:
+        val = estado.get(chave)
+        if not val:  # chave nova: so inicializa, nao recupera
+            _marcar_execucao(chave)
+            return False
+        try:
+            return datetime.fromisoformat(val) < ocorrencias[chave]
+        except Exception:
+            return False
+
+    if _perdeu("fechamento"):
+        log.info("Catch-up: fechamento do ano anterior perdido (janela %s). Rodando.",
+                 ocorrencias["fechamento"])
+        job_fechamento_ano_anterior()
+
+    # A mensal (ano corrente inteiro) ja cobre os ultimos 7 dias; entao se ela
+    # foi perdida, roda so ela e marca a semanal como coberta.
+    if _perdeu("mensal"):
+        log.info("Catch-up: rotina mensal perdida (janela %s). Recarregando ano corrente.",
+                 ocorrencias["mensal"])
+        job_mensal_ano_corrente()
+        _marcar_execucao("semanal")
+    elif _perdeu("semanal"):
+        log.info("Catch-up: rotina semanal perdida (janela %s). Sincronizando 7 dias.",
+                 ocorrencias["semanal"])
+        job_semanal()
+
+    log.info("Catch-up concluido.")
+
+
 def _notificar(resultado: dict | None, erro: str | None) -> None:
     try:
         load_dotenv(BASE / ".env")
@@ -81,6 +189,7 @@ def job_semanal():
     with _sync_lock:  # espera a vez se houver sync manual em andamento
         try:
             executar(dias=7, headless=True, notificar=True)
+            _marcar_execucao("semanal")
         except Exception:
             log.exception("Sincronizacao semanal agendada falhou")
 
@@ -124,6 +233,7 @@ def job_mensal_ano_corrente():
     with _sync_lock:
         try:
             resultado = rodar_backfill(date(hoje.year, 1, 1), hoje)
+            _marcar_execucao("mensal")
         except Exception as e:
             erro = str(e)
             log.exception("Resincronizacao mensal falhou")
@@ -138,6 +248,7 @@ def job_fechamento_ano_anterior():
     with _sync_lock:
         try:
             resultado = rodar_backfill(date(ano_anterior, 1, 1), date(ano_anterior, 12, 31))
+            _marcar_execucao("fechamento")
         except Exception as e:
             erro = str(e)
             log.exception("Resincronizacao de fechamento de ano falhou")
@@ -162,10 +273,15 @@ if __name__ == "__main__":
         coalesce=True,
         max_instances=1,
     )
+    # Catch-up das janelas perdidas com o PC desligado. Roda numa thread para
+    # nao atrasar o start do scheduler (a fila manual ja fica responsiva); a
+    # trava _sync_lock coordena com as demais rotinas.
+    threading.Thread(target=catch_up, name="catch-up", daemon=True).start()
+
     log.info(
         "Agendador iniciado. Rotinas: sexta 07:59 (semanal), dia 1 de cada mes 08:30 "
         "(ano corrente), 1/fev 08:30 (fechamento ano anterior), fila de pedidos manuais "
-        "a cada 20s. Timezone America/Sao_Paulo."
+        "a cada 20s, + catch-up no arranque. Timezone America/Sao_Paulo."
     )
     try:
         scheduler.start()
