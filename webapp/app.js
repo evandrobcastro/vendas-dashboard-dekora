@@ -30,6 +30,13 @@ const PALETA_SEG = ["#8B3C05", "#C9712E", "#8A6A4A", "#B8860B", "#B9AD9E", "#D8C
 const CORES_COMISS = { "Comissionado": "#C9712E", "Cliente Final": "#8B3C05" };
 const ORDEM_COMISS = ["Comissionado", "Cliente Final"]; // base -> topo
 
+// Chaves canônicas de KPI que as caixas da aba Comercial reconhecem
+const TIPOS_KPI_SUGERIDOS = [
+  "valor_vendas", "ticket_medio", "qtd_vendas", "taxa_conversao",
+  "valor_orcamentos", "ticket_medio_orcamentos", "qtd_orcamentos", "forecast_vendas",
+];
+const OUTRO = "Outro (digitar abaixo)";
+
 // ---------------------------------------------------------------------------
 // Estado
 // ---------------------------------------------------------------------------
@@ -39,7 +46,12 @@ let FILTROS = { inicio: "", fim: "", vendedores: [], cidades: [], situacoes: [],
                 valorMin: null, valorMax: null };
 let SEGMENTOS_ORDEM = [];
 let CORES_SEG = {};
+let SYNC_LOG = [];
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
+let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
+const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
+const METAS_PAG = { pagina: 0 };
+let syncTimer = null;
 
 // ---------------------------------------------------------------------------
 // Utilitários
@@ -147,6 +159,7 @@ async function carregarDados() {
       r.data_referencia = r.tipo === "venda" ? r.data_aprovacao : r.data_cadastro;
     }
     METAS = paraObjetos(d.metas);
+    SYNC_LOG = d.sync_log ? paraObjetos(d.sync_log) : [];
 
     // Ordem/cor fixa dos segmentos, pelo total geral de vendas (todos os dados)
     const totalPorSeg = {};
@@ -172,6 +185,9 @@ async function carregarDados() {
     $("tela-app").classList.remove("oculto");
 
     montarFiltros();
+    montarAbaMetas();
+    montarAdmin();
+    renderLog();
     renderizar();
   } catch (e) {
     console.error(e);
@@ -677,6 +693,355 @@ function renderComissionado(filtrado, mesesPeriodo) {
 }
 
 // ---------------------------------------------------------------------------
+// Aba Tabela: registros filtrados, com ordenação e paginação
+// ---------------------------------------------------------------------------
+const fmtData = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "";
+const fmtDataHora = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("pt-BR") + " " +
+         d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+};
+const escapaHTML = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                                          .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// [campo, rótulo, formatador?, numérica?]
+const COLS_TABELA = [
+  ["codigo", "Código"],
+  ["tipo", "Tipo"],
+  ["cliente", "Cliente"],
+  ["situacao", "Situação"],
+  ["valor", "Valor (R$)", fmtMoeda2, true],
+  ["vendedor", "Vendedor"],
+  ["cidade", "Cidade"],
+  ["segmento", "Segmento"],
+  ["comissionado", "Comissionado"],
+  ["data_cadastro", "Cadastro", fmtData],
+  ["data_aprovacao", "Aprovação", fmtData],
+  ["dias_aprovacao", "Dias aprov.", null, true],
+  ["metragem", "Metragem", null, true],
+  ["desconto", "Desconto", fmtMoeda2, true],
+  ["valor_sem_desc", "Valor s/ desc.", fmtMoeda2, true],
+  ["forma_divulgacao", "Divulgação"],
+  ["identificacao", "Identificação"],
+];
+const LINHAS_POR_PAGINA = 50;
+
+function renderTabela() {
+  const linhas = [...ULTIMO_FILTRADO];
+  const campo = TABELA.ordenarPor;
+  linhas.sort((a, b) => {
+    const va = a[campo], vb = b[campo];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    const cmp = typeof va === "number" ? va - vb : String(va).localeCompare(String(vb), "pt-BR");
+    return TABELA.asc ? cmp : -cmp;
+  });
+
+  const total = linhas.length;
+  const paginas = Math.max(Math.ceil(total / LINHAS_POR_PAGINA), 1);
+  TABELA.pagina = Math.min(TABELA.pagina, paginas - 1);
+  const ini = TABELA.pagina * LINHAS_POR_PAGINA;
+  const visiveis = linhas.slice(ini, ini + LINHAS_POR_PAGINA);
+
+  const ths = COLS_TABELA.map(([campo2, rotulo]) => {
+    const marca = campo2 === TABELA.ordenarPor ? (TABELA.asc ? " ▲" : " ▼") : "";
+    return `<th class="ordenavel" data-campo="${campo2}">${rotulo}${marca}</th>`;
+  }).join("");
+  const trs = visiveis.map((r) => "<tr>" + COLS_TABELA.map(([c, , fmt, num]) => {
+    const bruto = r[c];
+    const txt = bruto == null ? "" : (fmt ? fmt(bruto) : escapaHTML(bruto));
+    return `<td${num ? ' class="num"' : ""}>${txt}</td>`;
+  }).join("") + "</tr>").join("");
+
+  $("tabela-registros").innerHTML = `<thead><tr>${ths}</tr></thead><tbody>${trs}</tbody>`;
+  $("tabela-registros").querySelectorAll("th.ordenavel").forEach((th) => {
+    th.addEventListener("click", () => {
+      const c = th.dataset.campo;
+      if (TABELA.ordenarPor === c) TABELA.asc = !TABELA.asc;
+      else { TABELA.ordenarPor = c; TABELA.asc = true; }
+      renderTabela();
+    });
+  });
+  $("tab-info").textContent =
+    total ? `${ini + 1}–${Math.min(ini + LINHAS_POR_PAGINA, total)} de ${total.toLocaleString("pt-BR")} registros`
+          : "Nenhum registro no filtro selecionado";
+  $("tab-ant").disabled = TABELA.pagina === 0;
+  $("tab-prox").disabled = TABELA.pagina >= paginas - 1;
+}
+
+// ---------------------------------------------------------------------------
+// Aba Metas: formulário individual, lote e listagem
+// ---------------------------------------------------------------------------
+async function apiAdmin(metodo, corpo) {
+  const resp = await fetch(`${API}/admin`, {
+    method: metodo,
+    headers: {
+      Authorization: `Bearer ${token()}`,
+      ...(corpo ? { "Content-Type": "application/json" } : {}),
+    },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  if (resp.status === 401) { sair(); mostrarLogin("Sessão expirada. Entre novamente."); throw new Error("401"); }
+  return { ok: resp.ok, status: resp.status, corpo: await resp.json() };
+}
+
+function mensagem(idEl, texto, ok) {
+  const el = $(idEl);
+  el.className = ok ? "msg-ok" : "msg-erro";
+  el.textContent = texto;
+}
+
+function upsertMetaLocal(l) {
+  const chave = (m) => `${m.tipo_kpi}|${m.vendedor}|${m.ano_mes}`;
+  const nova = {
+    tipo_kpi: String(l.tipo_kpi).trim(),
+    vendedor: String(l.vendedor ?? "").trim() || VENDEDOR_GERAL,
+    ano_mes: String(l.ano_mes).trim(),
+    valor_meta: +l.valor_meta,
+    atualizado_em: new Date().toISOString(),
+  };
+  const i = METAS.findIndex((m) => chave(m) === chave(nova));
+  if (i >= 0) METAS[i] = nova; else METAS.push(nova);
+}
+
+function preencherSelect(sel, opcoes) {
+  sel.innerHTML = opcoes.map((o) => `<option>${escapaHTML(o)}</option>`).join("");
+}
+
+function montarAbaMetas() {
+  preencherSelect($("meta-kpi"), [...TIPOS_KPI_SUGERIDOS, OUTRO]);
+  preencherSelect($("meta-vendedor"), [VENDEDOR_GERAL, ...valoresUnicos("vendedor"), OUTRO]);
+  const hoje = hojeISO();
+  $("meta-mes").value = hoje.slice(0, 7);
+
+  const ligaOutro = (selId, inputId) => {
+    $(selId).addEventListener("change", () => {
+      $(inputId).classList.toggle("oculto", $(selId).value !== OUTRO);
+    });
+  };
+  ligaOutro("meta-kpi", "meta-kpi-outro");
+  ligaOutro("meta-vendedor", "meta-vendedor-outro");
+
+  $("btn-salvar-meta").addEventListener("click", salvarMetaIndividual);
+  $("btn-lote-add").addEventListener("click", () => adicionarLinhaLote());
+  $("btn-lote-salvar").addEventListener("click", salvarLote);
+  $("metas-ant").addEventListener("click", () => { METAS_PAG.pagina--; renderMetasLista(); });
+  $("metas-prox").addEventListener("click", () => { METAS_PAG.pagina++; renderMetasLista(); });
+
+  $("lote-linhas").innerHTML = "";
+  adicionarLinhaLote({ tipo_kpi: "valor_vendas", vendedor: VENDEDOR_GERAL,
+                       ano_mes: hoje.slice(0, 7), valor_meta: "" });
+  renderMetasLista();
+}
+
+async function salvarMetaIndividual() {
+  const btn = $("btn-salvar-meta");
+  const tipoKpi = $("meta-kpi").value === OUTRO ? $("meta-kpi-outro").value.trim() : $("meta-kpi").value;
+  const vendedor = $("meta-vendedor").value === OUTRO ? $("meta-vendedor-outro").value.trim() : $("meta-vendedor").value;
+  const anoMes = $("meta-mes").value; // AAAA-MM
+  const valor = parseValorBR($("meta-valor").value);
+  if (!tipoKpi) { mensagem("meta-msg", "Informe o KPI.", false); return; }
+  if (!anoMes) { mensagem("meta-msg", "Informe o mês de referência.", false); return; }
+  if (valor === null) { mensagem("meta-msg", "Informe o valor da meta.", false); return; }
+
+  btn.disabled = true;
+  try {
+    const linha = { tipo_kpi: tipoKpi, vendedor, ano_mes: anoMes, valor_meta: valor };
+    const r = await apiAdmin("POST", { acao: "meta", ...linha });
+    if (!r.ok) { mensagem("meta-msg", r.corpo.erro || "Falha ao salvar.", false); return; }
+    upsertMetaLocal(linha);
+    mensagem("meta-msg", `Meta salva: ${tipoKpi} / ${vendedor} / ${anoMes}`, true);
+    $("meta-valor").value = "";
+    renderMetasLista();
+    renderizar(); // atualiza comparativos das caixas e o gráfico de metas
+  } catch (e) {
+    if (String(e.message) !== "401") mensagem("meta-msg", "Sem conexão com o servidor.", false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function adicionarLinhaLote(valores) {
+  const v = valores ?? { tipo_kpi: "", vendedor: VENDEDOR_GERAL, ano_mes: "", valor_meta: "" };
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td><input data-campo="tipo_kpi" value="${escapaHTML(v.tipo_kpi)}" placeholder="valor_vendas"></td>
+    <td><input data-campo="vendedor" value="${escapaHTML(v.vendedor)}" placeholder="GERAL"></td>
+    <td><input data-campo="ano_mes" value="${escapaHTML(v.ano_mes)}" placeholder="AAAA-MM"></td>
+    <td><input data-campo="valor_meta" value="${escapaHTML(v.valor_meta)}" placeholder="0,00" inputmode="decimal"></td>
+    <td><button class="lote-remover" title="Remover linha">✕</button></td>`;
+  tr.querySelector(".lote-remover").addEventListener("click", () => tr.remove());
+  $("lote-linhas").appendChild(tr);
+}
+
+async function salvarLote() {
+  const btn = $("btn-lote-salvar");
+  const linhas = [...$("lote-linhas").querySelectorAll("tr")].map((tr) => {
+    const pega = (c) => tr.querySelector(`input[data-campo="${c}"]`).value;
+    return {
+      tipo_kpi: pega("tipo_kpi").trim(),
+      vendedor: pega("vendedor").trim(),
+      ano_mes: pega("ano_mes").trim(),
+      valor_meta: parseValorBR(pega("valor_meta")),
+    };
+  }).filter((l) => l.tipo_kpi || l.ano_mes || l.valor_meta !== null);
+  if (!linhas.length) { mensagem("lote-msg", "Nenhuma linha para salvar.", false); return; }
+
+  btn.disabled = true;
+  try {
+    const r = await apiAdmin("POST", { acao: "metas_lote", linhas });
+    if (!r.ok) { mensagem("lote-msg", r.corpo.erro || "Falha ao salvar.", false); return; }
+    const { sucesso, erros } = r.corpo;
+    // atualiza localmente apenas as linhas que NÃO deram erro
+    const comErro = new Set((erros || []).map((e) => parseInt(e.match(/^Linha (\d+)/)?.[1] ?? "0", 10) - 1));
+    linhas.forEach((l, i) => { if (!comErro.has(i)) upsertMetaLocal(l); });
+    if (erros && erros.length) {
+      mensagem("lote-msg", `${sucesso} salva(s). Erros:\n${erros.join("\n")}`, false);
+    } else {
+      mensagem("lote-msg", `${sucesso} meta(s) salva(s) com sucesso.`, true);
+    }
+    renderMetasLista();
+    renderizar();
+  } catch (e) {
+    if (String(e.message) !== "401") mensagem("lote-msg", "Sem conexão com o servidor.", false);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderMetasLista() {
+  const linhas = [...METAS].sort((a, b) =>
+    b.ano_mes.localeCompare(a.ano_mes) ||
+    a.vendedor.localeCompare(b.vendedor, "pt-BR") ||
+    a.tipo_kpi.localeCompare(b.tipo_kpi, "pt-BR"));
+  const total = linhas.length;
+  const paginas = Math.max(Math.ceil(total / LINHAS_POR_PAGINA), 1);
+  METAS_PAG.pagina = Math.max(Math.min(METAS_PAG.pagina, paginas - 1), 0);
+  const ini = METAS_PAG.pagina * LINHAS_POR_PAGINA;
+  const visiveis = linhas.slice(ini, ini + LINHAS_POR_PAGINA);
+
+  $("tabela-metas").innerHTML =
+    "<thead><tr><th>KPI</th><th>Vendedor</th><th>Mês</th><th>Valor da meta</th><th>Atualizada em</th></tr></thead>" +
+    "<tbody>" + visiveis.map((m) => `<tr>
+      <td>${escapaHTML(m.tipo_kpi)}</td>
+      <td>${escapaHTML(m.vendedor)}</td>
+      <td>${escapaHTML(m.ano_mes)}</td>
+      <td class="num">${(+m.valor_meta).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td>
+      <td>${fmtDataHora(m.atualizado_em)}</td>
+    </tr>`).join("") + "</tbody>";
+  $("metas-info").textContent =
+    total ? `${ini + 1}–${Math.min(ini + LINHAS_POR_PAGINA, total)} de ${total.toLocaleString("pt-BR")} metas`
+          : "Nenhuma meta cadastrada";
+  $("metas-ant").disabled = METAS_PAG.pagina === 0;
+  $("metas-prox").disabled = METAS_PAG.pagina >= paginas - 1;
+}
+
+// ---------------------------------------------------------------------------
+// Aba Log de sincronização
+// ---------------------------------------------------------------------------
+function renderLog() {
+  $("tabela-log").innerHTML =
+    "<thead><tr><th>Executado em</th><th>Novas</th><th>Atualizadas</th>" +
+    "<th>Removidas</th><th>Status</th><th>Mensagem</th></tr></thead>" +
+    "<tbody>" + SYNC_LOG.map((l) => `<tr>
+      <td>${fmtDataHora(l.executado_em)}</td>
+      <td class="num">${l.linhas_novas ?? 0}</td>
+      <td class="num">${l.linhas_atualizadas ?? 0}</td>
+      <td class="num">${l.linhas_removidas ?? 0}</td>
+      <td>${escapaHTML(l.status)}</td>
+      <td>${escapaHTML(l.mensagem ?? "")}</td>
+    </tr>`).join("") + "</tbody>";
+}
+
+// ---------------------------------------------------------------------------
+// Administração: Sincronizar agora (fila de pedidos p/ o PC)
+// ---------------------------------------------------------------------------
+function montarAdmin() {
+  $("sync-desde").value = diasAtrasISO(7);
+  $("sync-desde").max = hojeISO();
+  $("btn-sync").addEventListener("click", pedirSync);
+  atualizarStatusSync();
+}
+
+function mostrarStatusSync(info) {
+  $("btn-sync").disabled = info.em_andamento;
+  const u = info.ultimo;
+  let txt = "";
+  if (info.em_andamento) {
+    txt = "⏳ Sincronização em andamento no PC. O resultado aparece aqui em alguns minutos.";
+  } else if (u) {
+    const quando = fmtDataHora(u.atualizado_em);
+    if (u.status === "concluido") txt = `✅ Última sincronização (${quando}): ${u.mensagem}`;
+    else if (u.status === "falhou") txt = `⚠️ Última tentativa falhou (${quando}): ${u.mensagem}`;
+  }
+  $("sync-status").textContent = txt;
+}
+
+async function atualizarStatusSync() {
+  try {
+    const r = await apiAdmin("GET");
+    if (!r.ok) return;
+    mostrarStatusSync(r.corpo);
+    if (r.corpo.em_andamento && !syncTimer) {
+      syncTimer = setInterval(async () => {
+        const r2 = await apiAdmin("GET");
+        if (r2.ok) {
+          mostrarStatusSync(r2.corpo);
+          if (!r2.corpo.em_andamento) {
+            clearInterval(syncTimer); syncTimer = null;
+            $("sync-status").textContent += " — recarregue a página para ver os dados novos.";
+          }
+        }
+      }, 20000);
+    }
+  } catch { /* rede: tenta de novo na próxima ação */ }
+}
+
+async function pedirSync() {
+  const desde = $("sync-desde").value || diasAtrasISO(7);
+  const dias = Math.max(Math.round((new Date(hojeISO()) - new Date(desde)) / 86400000), 0);
+  $("btn-sync").disabled = true;
+  try {
+    const r = await apiAdmin("POST", { acao: "sync", dias });
+    if (r.status === 409) {
+      $("sync-status").textContent = "⏳ Já existe uma sincronização em andamento. Aguarde ela terminar.";
+    } else if (r.ok) {
+      $("sync-status").textContent =
+        "✅ Pedido enviado! O PC vai sincronizar em instantes. O status atualiza aqui sozinho.";
+    } else {
+      $("sync-status").textContent = "⚠️ " + (r.corpo.erro || "Falha ao enviar o pedido.");
+      $("btn-sync").disabled = false;
+      return;
+    }
+    atualizarStatusSync();
+  } catch (e) {
+    if (String(e.message) !== "401") {
+      $("sync-status").textContent = "⚠️ Sem conexão com o servidor.";
+      $("btn-sync").disabled = false;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Abas
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".cd-tabs .tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".cd-tabs .tab").forEach((b) => b.classList.remove("ativa"));
+    document.querySelectorAll(".aba-conteudo").forEach((a) => a.classList.add("oculto"));
+    btn.classList.add("ativa");
+    $(btn.dataset.aba).classList.remove("oculto");
+    if (btn.dataset.aba === "aba-comercial") {
+      Object.values(GRAFICOS).forEach((g) => g.resize());
+    }
+  });
+});
+$("tab-ant").addEventListener("click", () => { TABELA.pagina--; renderTabela(); });
+$("tab-prox").addEventListener("click", () => { TABELA.pagina++; renderTabela(); });
+
+// ---------------------------------------------------------------------------
 // Render geral
 // ---------------------------------------------------------------------------
 function renderizar() {
@@ -686,11 +1051,13 @@ function renderizar() {
     : [hojeISO().slice(0, 7)];
   const vendedoresAlvo = FILTROS.vendedores.length ? FILTROS.vendedores : [VENDEDOR_GERAL];
 
+  ULTIMO_FILTRADO = filtrado;
   renderKpis(filtrado, base, mesesPeriodo, vendedoresAlvo);
   renderGraficoVendas(filtrado, mesesPeriodo, vendedoresAlvo);
   renderRankings(filtrado);
   renderSegmento(filtrado, mesesPeriodo);
   renderComissionado(filtrado, mesesPeriodo);
+  renderTabela();
 }
 
 // ---------------------------------------------------------------------------

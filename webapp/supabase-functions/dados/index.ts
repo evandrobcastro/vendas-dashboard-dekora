@@ -33,7 +33,9 @@ const COLS_REGISTROS = [
   "metragem", "cidade", "valor_sem_desc", "segmento", "comissionado",
   "forma_divulgacao",
 ];
-const COLS_METAS = ["tipo_kpi", "vendedor", "ano_mes", "valor_meta"];
+const COLS_METAS = ["tipo_kpi", "vendedor", "ano_mes", "valor_meta", "atualizado_em"];
+const COLS_LOG = ["executado_em", "linhas_novas", "linhas_atualizadas",
+                  "linhas_removidas", "status", "mensagem"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -58,9 +60,13 @@ Deno.serve(async (req: Request) => {
              valor_sem_desc, segmento, comissionado, forma_divulgacao
       from registros`;
     const metas = await sql`
-      select tipo_kpi, vendedor, ano_mes, valor_meta from metas`;
+      select tipo_kpi, vendedor, ano_mes, valor_meta, atualizado_em from metas`;
     const sync = await sql`
       select max(executado_em) as ultima from sync_log where status = 'sucesso'`;
+    const syncLog = await sql`
+      select executado_em, linhas_novas, linhas_atualizadas, linhas_removidas,
+             status, mensagem
+      from sync_log order by executado_em desc limit 20`;
 
     return json({
       usuario,
@@ -73,6 +79,10 @@ Deno.serve(async (req: Request) => {
       metas: {
         columns: COLS_METAS,
         rows: metas.map((r) => COLS_METAS.map((c) => r[c] ?? null)),
+      },
+      sync_log: {
+        columns: COLS_LOG,
+        rows: syncLog.map((r) => COLS_LOG.map((c) => r[c] ?? null)),
       },
     });
   } catch (e) {

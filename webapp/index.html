@@ -66,6 +66,19 @@
           <input type="text" id="filtro-valor-min" placeholder="sem mínimo" inputmode="decimal">
           <input type="text" id="filtro-valor-max" placeholder="sem máximo" inputmode="decimal">
         </div>
+        <details class="cd-admin">
+          <summary>Administração</summary>
+          <p class="cd-nota">
+            A sincronização baixa os dados do ERP e roda no PC da Casa Dekora
+            (que fica ligado). Você pode pedir daqui de qualquer lugar — celular
+            ou outro computador — e o resultado aparece em alguns minutos.
+          </p>
+          <label>Sincronizar desde</label>
+          <input type="date" id="sync-desde">
+          <button id="btn-sync" class="btn-terracota">🔄 Sincronizar agora</button>
+          <div id="sync-status" class="cd-nota"></div>
+        </details>
+
         <div class="sidebar-rodape">
           <div id="info-sync"></div>
         </div>
@@ -75,12 +88,13 @@
       <!-- Conteúdo -->
       <main class="cd-main">
         <nav class="cd-tabs">
-          <button class="tab ativa">Comercial</button>
-          <button class="tab desabilitada" title="Em breve">Tabela</button>
-          <button class="tab desabilitada" title="Em breve">Metas</button>
-          <button class="tab desabilitada" title="Em breve">Log de sincronização</button>
+          <button class="tab ativa" data-aba="aba-comercial">Comercial</button>
+          <button class="tab" data-aba="aba-tabela">Tabela</button>
+          <button class="tab" data-aba="aba-metas">Metas</button>
+          <button class="tab" data-aba="aba-log">Log de sincronização</button>
         </nav>
 
+        <div id="aba-comercial" class="aba-conteudo">
         <!-- 8 caixas de KPI -->
         <section id="kpis" class="kpi-grid"></section>
 
@@ -140,6 +154,100 @@
           </div>
           <div id="legenda-comissionado" class="cd-chart-legend legenda-bloco"></div>
         </section>
+        </div><!-- /aba-comercial -->
+
+        <!-- ================= ABA TABELA ================= -->
+        <div id="aba-tabela" class="aba-conteudo oculto">
+          <section class="cd-card">
+            <h4>Registros do período/filtros selecionados</h4>
+            <div class="tabela-scroll">
+              <table class="cd-table" id="tabela-registros"></table>
+            </div>
+            <div class="paginacao">
+              <button id="tab-ant">‹ Anterior</button>
+              <span id="tab-info"></span>
+              <button id="tab-prox">Próxima ›</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- ================= ABA METAS ================= -->
+        <div id="aba-metas" class="aba-conteudo oculto">
+          <section class="cd-card">
+            <h4>Cadastrar/atualizar uma meta</h4>
+            <p class="cd-nota">
+              Inserir a mesma combinação de KPI + vendedor + mês de novo apenas
+              atualiza o valor (use para replanejamento).
+            </p>
+            <div class="form-meta">
+              <div>
+                <label>KPI</label>
+                <select id="meta-kpi"></select>
+                <input type="text" id="meta-kpi-outro" class="oculto" placeholder="KPI personalizado">
+              </div>
+              <div>
+                <label>Vendedor (ou GERAL)</label>
+                <select id="meta-vendedor"></select>
+                <input type="text" id="meta-vendedor-outro" class="oculto" placeholder="Vendedor personalizado">
+              </div>
+              <div>
+                <label>Mês de referência</label>
+                <input type="month" id="meta-mes">
+              </div>
+              <div>
+                <label>Valor da meta</label>
+                <input type="text" id="meta-valor" inputmode="decimal" placeholder="0,00">
+              </div>
+              <div class="form-meta-acao">
+                <button id="btn-salvar-meta" class="btn-terracota">💾 Salvar meta</button>
+              </div>
+            </div>
+            <div id="meta-msg"></div>
+          </section>
+
+          <section class="cd-card">
+            <h4>Inserção em lote</h4>
+            <p class="cd-nota">
+              Adicione/edite as linhas e clique em Salvar todas. vendedor=GERAL
+              para meta da empresa. Mês no formato AAAA-MM.
+            </p>
+            <div class="tabela-scroll">
+              <table class="cd-table" id="tabela-lote">
+                <thead>
+                  <tr><th>tipo_kpi</th><th>vendedor</th><th>ano_mes</th><th>valor_meta</th><th></th></tr>
+                </thead>
+                <tbody id="lote-linhas"></tbody>
+              </table>
+            </div>
+            <div class="lote-acoes">
+              <button id="btn-lote-add">+ Adicionar linha</button>
+              <button id="btn-lote-salvar" class="btn-terracota">💾 Salvar todas</button>
+            </div>
+            <div id="lote-msg"></div>
+          </section>
+
+          <section class="cd-card">
+            <h4>Metas cadastradas</h4>
+            <div class="tabela-scroll">
+              <table class="cd-table" id="tabela-metas"></table>
+            </div>
+            <div class="paginacao">
+              <button id="metas-ant">‹ Anterior</button>
+              <span id="metas-info"></span>
+              <button id="metas-prox">Próxima ›</button>
+            </div>
+          </section>
+        </div>
+
+        <!-- ================= ABA LOG ================= -->
+        <div id="aba-log" class="aba-conteudo oculto">
+          <section class="cd-card">
+            <h4>Últimas sincronizações automáticas e manuais</h4>
+            <div class="tabela-scroll">
+              <table class="cd-table" id="tabela-log"></table>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   </div>
