@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Boletim Casa Dekora</title>
+  <link rel="icon" type="image/png" href="assets/logo_negativo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ================= TELA DE LOGIN ================= -->
+  <div id="tela-login" class="oculto">
+    <div class="login-wrap">
+      <div class="cd-topbar">
+        <img src="assets/logo_negativo.png" alt="Casa Dekora">
+        <div class="cd-title">Boletim <span>Casa Dekora</span></div>
+      </div>
+      <div class="cd-accent-bar"></div>
+      <form id="form-login" class="cd-card login-card">
+        <label for="login-email">E-mail</label>
+        <input type="email" id="login-email" autocomplete="username" required>
+        <label for="login-senha">Senha</label>
+        <input type="password" id="login-senha" autocomplete="current-password" required>
+        <button type="submit" id="btn-entrar">Entrar</button>
+        <div id="login-erro" class="login-erro oculto"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= APP ================= -->
+  <div id="tela-app" class="oculto">
+    <header class="cd-header">
+      <div class="cd-topbar">
+        <button id="btn-menu" class="btn-menu" aria-label="Abrir filtros">☰</button>
+        <img src="assets/logo_negativo.png" alt="Casa Dekora">
+        <div class="cd-title">Boletim <span>Casa Dekora</span></div>
+        <div class="cd-user">
+          <span id="usuario-nome"></span>
+          <button id="btn-sair">Sair</button>
+        </div>
+      </div>
+      <div class="cd-accent-bar"></div>
+    </header>
+
+    <div class="cd-layout">
+      <!-- Sidebar de filtros -->
+      <aside id="sidebar" class="cd-sidebar">
+        <h2>Filtros</h2>
+        <label>Período <small>(cadastro p/ orçamentos, aprovação p/ vendas)</small></label>
+        <div class="periodo-inputs">
+          <input type="date" id="filtro-inicio">
+          <input type="date" id="filtro-fim">
+        </div>
+        <label>Vendedor</label>
+        <div id="ms-vendedor"></div>
+        <label>Cidade</label>
+        <div id="ms-cidade"></div>
+        <label>Situação</label>
+        <div id="ms-situacao"></div>
+        <label>Faixa de valor do pedido (R$)</label>
+        <div class="periodo-inputs">
+          <input type="text" id="filtro-valor-min" placeholder="sem mínimo" inputmode="decimal">
+          <input type="text" id="filtro-valor-max" placeholder="sem máximo" inputmode="decimal">
+        </div>
+        <div class="sidebar-rodape">
+          <div id="info-sync"></div>
+        </div>
+      </aside>
+      <div id="sidebar-fundo"></div>
+
+      <!-- Conteúdo -->
+      <main class="cd-main">
+        <nav class="cd-tabs">
+          <button class="tab ativa">Comercial</button>
+          <button class="tab desabilitada" title="Em breve">Tabela</button>
+          <button class="tab desabilitada" title="Em breve">Metas</button>
+          <button class="tab desabilitada" title="Em breve">Log de sincronização</button>
+        </nav>
+
+        <!-- 8 caixas de KPI -->
+        <section id="kpis" class="kpi-grid"></section>
+
+        <!-- Gráfico principal -->
+        <section class="cd-card">
+          <h4>Vendas — projetado vs realizado</h4>
+          <div id="grafico-vendas" class="grafico"></div>
+          <div id="grafico-vendas-vazio" class="grafico-vazio oculto">
+            Sem vendas nem metas para o período/filtros selecionados.
+          </div>
+          <div class="cd-chart-legend">
+            <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Vendas</span>
+            <span><i style="background:linear-gradient(180deg,#C7BCAE,#A89B89)"></i>Metas</span>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Carregando -->
+  <div id="carregando" class="carregando oculto">
+    <div class="spinner"></div>
+    <div>Carregando dados…</div>
+  </div>
+
+  <script src="vendor/echarts.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
