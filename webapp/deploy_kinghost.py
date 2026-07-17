@@ -6,8 +6,10 @@ Sobe index.html, styles.css, app.js, assets/ e vendor/ para /www/dashboard.
 
 Uso:  python webapp/deploy_kinghost.py
 """
+import io
 import os
 import sys
+import time
 from ftplib import FTP, FTP_TLS, error_perm
 from pathlib import Path
 
@@ -57,12 +59,22 @@ def main():
     garantir_dir(ftp, DESTINO)
     garantir_dir(ftp, f"{DESTINO}/assets")
     garantir_dir(ftp, f"{DESTINO}/vendor")
+    # Carimbo de versao anti-cache: o navegador so guarda cache por URL, entao
+    # "styles.css?v=173..." muda a cada deploy e forca baixar a versao nova.
+    versao = str(int(time.time()))
     for rel in ARQUIVOS:
         local = BASE / rel
         remoto = f"{DESTINO}/{rel}"
-        with open(local, "rb") as f:
-            ftp.storbinary(f"STOR {remoto}", f)
+        if rel == "index.html":
+            html = local.read_text(encoding="utf-8")
+            for alvo in ("styles.css", "app.js", "vendor/echarts.min.js"):
+                html = html.replace(f'"{alvo}"', f'"{alvo}?v={versao}"')
+            ftp.storbinary(f"STOR {remoto}", io.BytesIO(html.encode("utf-8")))
+        else:
+            with open(local, "rb") as f:
+                ftp.storbinary(f"STOR {remoto}", f)
         print(f"enviado: {rel} ({local.stat().st_size / 1024:.0f} KB)")
+    print(f"versao anti-cache: {versao}")
     print("Conteudo remoto de", DESTINO, ":")
     ftp.cwd(DESTINO)
     ftp.retrlines("NLST")
