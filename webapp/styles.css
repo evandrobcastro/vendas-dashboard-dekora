@@ -237,7 +237,25 @@ body {
 
 /* ---------------- Gráficos ---------------- */
 .grafico { width: 100%; height: 340px; }
+.grafico-alto { height: 380px; }
 .grafico-vazio { color: var(--madeira); font-weight: 600; font-size: 14px; padding: 12px 0; }
+
+/* Linhas de cartões: 50/50 (rankings) e 70/30 (gráfico + pizza) */
+.duas-colunas { display: flex; gap: 18px; }
+.duas-colunas > * { flex: 1; min-width: 0; }
+.linha-graficos { display: flex; gap: 18px; }
+.linha-graficos .g70 { flex: 7; min-width: 0; }
+.linha-graficos .g30 { flex: 3; min-width: 0; }
+.legenda-bloco { margin: -8px 0 18px 0; }
+
+/* Ranking de vendedores com barras horizontais */
+.cd-rank-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.cd-rank-num { width: 18px; font-weight: 800; color: var(--madeira); font-size: 13px; }
+.cd-rank-name { width: 165px; font-size: 13px; font-weight: 600; flex-shrink: 0;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-rank-bar-bg { flex: 1; background: var(--areia); border-radius: 6px; height: 10px; overflow: hidden; }
+.cd-rank-bar-fill { height: 100%; background: linear-gradient(90deg, #C9712E, var(--terracota)); border-radius: 6px; }
+.cd-rank-value { width: 70px; text-align: right; font-size: 12px; font-weight: 700; }
 
 .cd-chart-legend {
   display: flex;
@@ -339,8 +357,12 @@ body {
   }
   .cd-layout { padding: 14px; }
 }
+@media (max-width: 900px) and (min-width: 0px) {
+  .duas-colunas, .linha-graficos { flex-direction: column; }
+}
 @media (max-width: 640px) {
   .kpi-grid { grid-template-columns: 1fr; }
+  .grafico-alto { height: 300px; }
   .cd-topbar { padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
   .cd-topbar img { height: 24px; }
   .cd-topbar .cd-title { font-size: 15px; }

@@ -96,6 +96,50 @@
             <span><i style="background:linear-gradient(180deg,#C7BCAE,#A89B89)"></i>Metas</span>
           </div>
         </section>
+
+        <!-- Rankings de vendedores -->
+        <section class="duas-colunas">
+          <div class="cd-card" id="rank-vendas"></div>
+          <div class="cd-card" id="rank-orcamentos"></div>
+        </section>
+
+        <!-- Segmento de clientes: empilhado (70%) + pizza (30%) -->
+        <section>
+          <div class="linha-graficos">
+            <div class="cd-card g70">
+              <h4>Segmento de clientes</h4>
+              <div id="grafico-segmento" class="grafico grafico-alto"></div>
+              <div id="grafico-segmento-vazio" class="grafico-vazio oculto">
+                Sem vendas no período/filtros selecionados.
+              </div>
+            </div>
+            <div class="cd-card g30">
+              <h4>Distribuição %</h4>
+              <div id="pizza-segmento" class="grafico grafico-alto"></div>
+              <div id="pizza-segmento-vazio" class="grafico-vazio oculto">Sem dados.</div>
+            </div>
+          </div>
+          <div id="legenda-segmento" class="cd-chart-legend legenda-bloco"></div>
+        </section>
+
+        <!-- Comissionado vs Cliente Final: 100% empilhado (70%) + pizza (30%) -->
+        <section>
+          <div class="linha-graficos">
+            <div class="cd-card g70">
+              <h4>Comissionado vs Cliente Final</h4>
+              <div id="grafico-comissionado" class="grafico grafico-alto"></div>
+              <div id="grafico-comissionado-vazio" class="grafico-vazio oculto">
+                Sem vendas no período/filtros selecionados.
+              </div>
+            </div>
+            <div class="cd-card g30">
+              <h4>Distribuição %</h4>
+              <div id="pizza-comissionado" class="grafico grafico-alto"></div>
+              <div id="pizza-comissionado-vazio" class="grafico-vazio oculto">Sem dados.</div>
+            </div>
+          </div>
+          <div id="legenda-comissionado" class="cd-chart-legend legenda-bloco"></div>
+        </section>
       </main>
     </div>
   </div>

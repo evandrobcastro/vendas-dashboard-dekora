@@ -24,6 +24,12 @@ const AGREGACAO_META = {
 const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
                   "jul", "ago", "set", "out", "nov", "dez"];
 
+// Cores fixas por segmento, em tons da marca (terracota + neutros). A ordem
+// (e portanto a cor) vem do total geral, então não muda com o filtro.
+const PALETA_SEG = ["#8B3C05", "#C9712E", "#8A6A4A", "#B8860B", "#B9AD9E", "#D8CFC0", "#6E4B2A"];
+const CORES_COMISS = { "Comissionado": "#C9712E", "Cliente Final": "#8B3C05" };
+const ORDEM_COMISS = ["Comissionado", "Cliente Final"]; // base -> topo
+
 // ---------------------------------------------------------------------------
 // Estado
 // ---------------------------------------------------------------------------
@@ -31,7 +37,9 @@ let REGISTROS = [];   // objetos já com data_referencia
 let METAS = [];
 let FILTROS = { inicio: "", fim: "", vendedores: [], cidades: [], situacoes: [],
                 valorMin: null, valorMax: null };
-let graficoVendas = null;
+let SEGMENTOS_ORDEM = [];
+let CORES_SEG = {};
+const GRAFICOS = {}; // instâncias ECharts por id de elemento
 
 // ---------------------------------------------------------------------------
 // Utilitários
@@ -139,6 +147,18 @@ async function carregarDados() {
       r.data_referencia = r.tipo === "venda" ? r.data_aprovacao : r.data_cadastro;
     }
     METAS = paraObjetos(d.metas);
+
+    // Ordem/cor fixa dos segmentos, pelo total geral de vendas (todos os dados)
+    const totalPorSeg = {};
+    for (const r of REGISTROS) {
+      if (r.tipo !== "venda") continue;
+      const seg = r.segmento ?? "Não informado";
+      totalPorSeg[seg] = (totalPorSeg[seg] || 0) + (r.valor || 0);
+    }
+    SEGMENTOS_ORDEM = Object.entries(totalPorSeg)
+      .sort((a, b) => b[1] - a[1]).map(([s]) => s);
+    CORES_SEG = {};
+    SEGMENTOS_ORDEM.forEach((s, i) => { CORES_SEG[s] = PALETA_SEG[i % PALETA_SEG.length]; });
 
     if (d.ultima_sincronizacao) {
       const q = new Date(d.ultima_sincronizacao);
@@ -388,8 +408,8 @@ function renderGraficoVendas(filtrado, mesesPeriodo, vendedoresAlvo) {
   ]);
   const rotuloK = (v) => v > 0 ? "R$ " + Math.round(v / 1000).toLocaleString("pt-BR") + "k" : "";
 
-  if (!graficoVendas) graficoVendas = echarts.init(el);
-  graficoVendas.setOption({
+  const g = grafico("grafico-vendas");
+  g.setOption({
     animationDuration: 300,
     grid: { left: 54, right: 14, top: 28, bottom: 30 },
     tooltip: {
@@ -432,7 +452,228 @@ function renderGraficoVendas(filtrado, mesesPeriodo, vendedoresAlvo) {
       },
     ],
   });
-  graficoVendas.resize();
+  g.resize();
+}
+
+// ---------------------------------------------------------------------------
+// Rankings, Segmento de clientes e Comissionado vs Cliente Final
+// ---------------------------------------------------------------------------
+function grafico(idEl) {
+  if (!GRAFICOS[idEl]) GRAFICOS[idEl] = echarts.init($(idEl));
+  return GRAFICOS[idEl];
+}
+
+const FONTE = "Montserrat, sans-serif";
+const EIXO_X = (rotulos, nome) => ({
+  type: "category", data: rotulos, name: nome, nameLocation: "middle",
+  nameGap: 30, nameTextStyle: { color: "#8A6A4A", fontWeight: 600, fontFamily: FONTE },
+  axisLine: { lineStyle: { color: "#B9AD9E" } }, axisTick: { show: false },
+  axisLabel: { color: "#8A6A4A", fontWeight: 600, fontFamily: FONTE },
+});
+const compactoBR = (v) => v >= 1e6 ? (v / 1e6).toLocaleString("pt-BR") + "M"
+                        : v >= 1e3 ? Math.round(v / 1e3) + "k" : v;
+
+function renderRankings(filtrado) {
+  const topPor = (tipo) => {
+    const somas = {};
+    for (const r of filtrado) {
+      if (r.tipo !== tipo || !r.vendedor) continue;
+      somas[r.vendedor] = (somas[r.vendedor] || 0) + (r.valor || 0);
+    }
+    return Object.entries(somas).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  };
+  const html = (titulo, itens) => {
+    if (!itens.length) {
+      return `<h4>${titulo}</h4><div class="grafico-vazio">Sem dados no filtro selecionado.</div>`;
+    }
+    const maximo = itens[0][1] || 1;
+    return `<h4>${titulo}</h4>` + itens.map(([nome, valor], i) => `
+      <div class="cd-rank-row">
+        <div class="cd-rank-num">${i + 1}</div>
+        <div class="cd-rank-name" title="${nome}">${nome}</div>
+        <div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:${Math.round(valor / maximo * 100)}%"></div></div>
+        <div class="cd-rank-value">R$ ${Math.round(valor / 1000).toLocaleString("pt-BR")}k</div>
+      </div>`).join("");
+  };
+  $("rank-vendas").innerHTML = html("Top vendedores — vendas", topPor("venda"));
+  $("rank-orcamentos").innerHTML = html("Top vendedores — orçamentos", topPor("orcamento"));
+}
+
+// Rótulo branco com contorno escuro (halo), legível sobre qualquer barra
+const ROTULO_HALO = (formatter, fontSize) => ({
+  show: true, position: "inside", formatter, color: "#fff",
+  fontSize, fontWeight: "bold", fontFamily: FONTE,
+  textBorderColor: "#3a2410", textBorderWidth: 2,
+});
+
+function pizza(idEl, idVazio, dados, coresPorNome, rotuloInterno = false) {
+  const el = $(idEl), vazio = $(idVazio);
+  const comValor = dados.filter((d) => d.value > 0).sort((a, b) => b.value - a.value);
+  if (!comValor.length) {
+    el.classList.add("oculto"); vazio.classList.remove("oculto");
+    if (GRAFICOS[idEl]) GRAFICOS[idEl].clear();
+    return;
+  }
+  el.classList.remove("oculto"); vazio.classList.add("oculto");
+  // Com poucas fatias grandes o rótulo cabe dentro (fora, na horizontal,
+  // ele encosta na borda do cartão e o ECharts corta com "…").
+  const label = rotuloInterno
+    ? { position: "inside", formatter: (p) => Math.round(p.percent) + "%",
+        color: "#fff", fontSize: 11, fontWeight: "bold", fontFamily: FONTE,
+        textBorderColor: "#3a2410", textBorderWidth: 2 }
+    : { formatter: (p) => Math.round(p.percent) + "%", color: "#5b5048",
+        fontSize: 10, fontWeight: "bold", fontFamily: FONTE };
+  const g = grafico(idEl);
+  g.setOption({
+    animationDuration: 300,
+    tooltip: {
+      trigger: "item",
+      formatter: (p) => `${p.name}<br>${fmtMoeda0(p.value)} (${p.percent.toLocaleString("pt-BR")}%)`,
+      textStyle: { fontFamily: FONTE },
+    },
+    series: [{
+      type: "pie", radius: ["35%", "68%"],
+      data: comValor.map((d) => ({ ...d, itemStyle: { color: coresPorNome[d.name] } })),
+      label,
+      labelLine: { show: !rotuloInterno, lineStyle: { color: "#B9AD9E" } },
+    }],
+  }, true);
+  g.resize();
+}
+
+function legendaHTML(idEl, nomes, cores) {
+  $(idEl).innerHTML = nomes.map(
+    (n) => `<span><i style="background:${cores[n]}"></i>${n}</span>`
+  ).join("");
+}
+
+function renderSegmento(filtrado, mesesPeriodo) {
+  const el = $("grafico-segmento"), vazio = $("grafico-segmento-vazio");
+  const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+
+  // Soma por (mês, segmento) das vendas do período
+  const porMesSeg = {};
+  for (const r of filtrado) {
+    if (r.tipo !== "venda" || !r.data_aprovacao) continue;
+    const am = r.data_aprovacao.slice(0, 7);
+    const seg = r.segmento ?? "Não informado";
+    (porMesSeg[am] ??= {})[seg] = (porMesSeg[am][seg] || 0) + (r.valor || 0);
+  }
+  const totaisMes = mesesPeriodo.map(
+    (am) => Object.values(porMesSeg[am] || {}).reduce((a, b) => a + b, 0)
+  );
+  const maiorColuna = Math.max(...totaisMes, 0);
+  // Só rotula segmentos com altura razoável (>=5% da maior coluna)
+  const limiar = maiorColuna * 0.05;
+
+  if (maiorColuna === 0) {
+    el.classList.add("oculto"); vazio.classList.remove("oculto");
+    if (GRAFICOS["grafico-segmento"]) GRAFICOS["grafico-segmento"].clear();
+  } else {
+    el.classList.remove("oculto"); vazio.classList.add("oculto");
+    const g = grafico("grafico-segmento");
+    g.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 16, bottom: 46 },
+      tooltip: {
+        trigger: "item",
+        formatter: (p) => `${p.name} — ${p.seriesName}<br>${fmtMoeda2(p.value)}`,
+        textStyle: { fontFamily: FONTE },
+      },
+      xAxis: EIXO_X(rotulos, "Mês aprovação"),
+      yAxis: {
+        type: "value",
+        splitLine: { lineStyle: { color: "#EFE7DA" } },
+        axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
+      },
+      series: SEGMENTOS_ORDEM.map((seg) => ({
+        name: seg, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => porMesSeg[am]?.[seg] || 0),
+        itemStyle: { color: CORES_SEG[seg] },
+        label: ROTULO_HALO(
+          (p) => p.value >= limiar ? Math.round(p.value).toLocaleString("pt-BR") : "", 9),
+      })),
+    }, true);
+    g.resize();
+  }
+
+  // Pizza com a distribuição % do período inteiro
+  const totalPorSeg = {};
+  for (const am of mesesPeriodo) {
+    for (const [seg, v] of Object.entries(porMesSeg[am] || {})) {
+      totalPorSeg[seg] = (totalPorSeg[seg] || 0) + v;
+    }
+  }
+  pizza("pizza-segmento", "pizza-segmento-vazio",
+        SEGMENTOS_ORDEM.map((s) => ({ name: s, value: totalPorSeg[s] || 0 })), CORES_SEG);
+  legendaHTML("legenda-segmento", SEGMENTOS_ORDEM, CORES_SEG);
+}
+
+function renderComissionado(filtrado, mesesPeriodo) {
+  const el = $("grafico-comissionado"), vazio = $("grafico-comissionado-vazio");
+  const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+
+  // Só vendas do segmento CLIENTE FINAL: separa quem teve comissionado
+  const vendasCF = filtrado.filter(
+    (r) => r.tipo === "venda" && r.data_aprovacao &&
+           String(r.segmento ?? "").trim().toUpperCase() === "CLIENTE FINAL"
+  );
+  const porMesCat = {};
+  const totalPorCat = { "Comissionado": 0, "Cliente Final": 0 };
+  for (const r of vendasCF) {
+    const am = r.data_aprovacao.slice(0, 7);
+    const cat = String(r.comissionado ?? "").trim() ? "Comissionado" : "Cliente Final";
+    (porMesCat[am] ??= {})[cat] = (porMesCat[am][cat] || 0) + (r.valor || 0);
+    totalPorCat[cat] += r.valor || 0;
+  }
+
+  const fracoes = {}; // cat -> [frações por mês]
+  for (const cat of ORDEM_COMISS) fracoes[cat] = [];
+  let temDados = false;
+  for (const am of mesesPeriodo) {
+    const totalMes = Object.values(porMesCat[am] || {}).reduce((a, b) => a + b, 0);
+    for (const cat of ORDEM_COMISS) {
+      fracoes[cat].push(totalMes > 0 ? (porMesCat[am]?.[cat] || 0) / totalMes : 0);
+    }
+    if (totalMes > 0) temDados = true;
+  }
+
+  if (!temDados) {
+    el.classList.add("oculto"); vazio.classList.remove("oculto");
+    if (GRAFICOS["grafico-comissionado"]) GRAFICOS["grafico-comissionado"].clear();
+  } else {
+    el.classList.remove("oculto"); vazio.classList.add("oculto");
+    const pctBR = (v, casas) => (v * 100).toLocaleString("pt-BR",
+      { minimumFractionDigits: casas, maximumFractionDigits: casas }) + "%";
+    const g = grafico("grafico-comissionado");
+    g.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 16, bottom: 46 },
+      tooltip: {
+        trigger: "item",
+        formatter: (p) => `${p.name} — ${p.seriesName}<br>${pctBR(p.value, 1)}`,
+        textStyle: { fontFamily: FONTE },
+      },
+      xAxis: EIXO_X(rotulos, "Mês aprovação"),
+      yAxis: {
+        type: "value", max: 1,
+        splitLine: { lineStyle: { color: "#EFE7DA" } },
+        axisLabel: { color: "#8A6A4A", fontFamily: FONTE,
+                     formatter: (v) => Math.round(v * 100) + "%" },
+      },
+      series: ORDEM_COMISS.map((cat) => ({
+        name: cat, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: fracoes[cat],
+        itemStyle: { color: CORES_COMISS[cat] },
+        label: ROTULO_HALO((p) => p.value > 0 ? pctBR(p.value, 1) : "", 10),
+      })),
+    }, true);
+    g.resize();
+  }
+
+  pizza("pizza-comissionado", "pizza-comissionado-vazio",
+        ORDEM_COMISS.map((c) => ({ name: c, value: totalPorCat[c] })), CORES_COMISS, true);
+  legendaHTML("legenda-comissionado", ORDEM_COMISS, CORES_COMISS);
 }
 
 // ---------------------------------------------------------------------------
@@ -447,6 +688,9 @@ function renderizar() {
 
   renderKpis(filtrado, base, mesesPeriodo, vendedoresAlvo);
   renderGraficoVendas(filtrado, mesesPeriodo, vendedoresAlvo);
+  renderRankings(filtrado);
+  renderSegmento(filtrado, mesesPeriodo);
+  renderComissionado(filtrado, mesesPeriodo);
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +706,9 @@ $("sidebar-fundo").addEventListener("click", () => {
   $("sidebar").classList.remove("aberta");
   $("sidebar-fundo").classList.remove("visivel");
 });
-window.addEventListener("resize", () => { if (graficoVendas) graficoVendas.resize(); });
+window.addEventListener("resize", () => {
+  Object.values(GRAFICOS).forEach((g) => g.resize());
+});
 
 if (token()) carregarDados();
 else mostrarLogin();
