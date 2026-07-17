@@ -59,6 +59,20 @@ def rodar(data_inicio: date, data_fim: date) -> dict:
     except Exception as e:
         print(f"AVISO: falha na sincronizacao de produtos ({e}); backfill principal OK")
 
+    # Financeiro (DRE) dos anos do intervalo. Isolado do backfill principal.
+    try:
+        from financeiro_erp import coletar_dre_lojas, LOJAS
+        from storage_financeiro import sincronizar_financeiro
+        for ano in range(data_inicio.year, data_fim.year + 1):
+            linhas_fin = coletar_dre_lojas(
+                os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), ano, 1, ano, 12
+            )
+            meses_fin = [f"{ano}-{m:02d}" for m in range(1, 13)]
+            resultado.update(sincronizar_financeiro(linhas_fin, meses_fin, list(LOJAS)))
+            print(f"Financeiro {ano} concluido: {resultado.get('linhas_financeiro')} linhas")
+    except Exception as e:
+        print(f"AVISO: falha na sincronizacao do financeiro ({e}); backfill principal OK")
+
     return resultado
 
 

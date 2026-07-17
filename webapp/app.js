@@ -70,6 +70,8 @@ let CORES_CLASSE = {};
 let GC_ORDEM = [];
 let CORES_GC = {};
 let PRODUTOS_VISAO = "grandes"; // "grandes" | "detalhe"
+let FINANCEIRO = [];
+let LOJA_SEL = "CASA DEKORA";
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
 const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
@@ -184,6 +186,7 @@ async function carregarDados() {
     METAS = paraObjetos(d.metas);
     SYNC_LOG = d.sync_log ? paraObjetos(d.sync_log) : [];
     PRODUTOS = d.produtos ? paraObjetos(d.produtos) : [];
+    FINANCEIRO = d.financeiro ? paraObjetos(d.financeiro) : [];
 
     // Ordem/cor fixa das classes de produto, pelo total geral de vendas
     const totalPorClasse = {};
@@ -860,6 +863,141 @@ function renderProdutos(mesesPeriodo) {
 }
 
 // ---------------------------------------------------------------------------
+// Aba Financeiro: DRE (regime de caixa) + KPIs + gráfico
+// ---------------------------------------------------------------------------
+// Linhas calculadas do DRE: depois de qual grupo (prefixo numérico) entram
+const DRE_CALCULADAS = [
+  [3, "MARGEM DE CONTRIBUIÇÃO"],
+  [7, "LUCRO OPERACIONAL"],
+  [9, "LUCRO LÍQUIDO"],
+];
+
+const numGrupo = (g) => parseInt(g, 10) || 99;
+
+function renderFinanceiro(mesesPeriodo) {
+  const dados = FINANCEIRO.filter(
+    (f) => f.loja === LOJA_SEL && mesesPeriodo.includes(f.ano_mes)
+  );
+  const tabela = $("tabela-dre"), tabVazio = $("tabela-dre-vazio");
+  const el = $("grafico-financeiro"), gVazio = $("grafico-financeiro-vazio");
+
+  // grupo -> classe -> {ano_mes: valor}
+  const arvore = {};
+  for (const f of dados) {
+    ((arvore[f.grupo] ??= {})[f.classe] ??= {})[f.ano_mes] = f.valor;
+  }
+  const grupos = Object.keys(arvore).sort((a, b) => numGrupo(a) - numGrupo(b));
+
+  // total de um grupo por mês
+  const totalGrupoMes = (g, am) => Object.values(arvore[g] || {})
+    .reduce((t, meses) => t + (meses[am] || 0), 0);
+  const totalAte = (limite, am) => grupos
+    .filter((g) => numGrupo(g) <= limite)
+    .reduce((t, g) => t + totalGrupoMes(g, am), 0);
+
+  // ---- KPIs ----
+  const somaMeses = (fn) => mesesPeriodo.reduce((t, am) => t + fn(am), 0);
+  const receita = somaMeses((am) => totalGrupoMes(grupos.find((g) => numGrupo(g) === 1) || "", am));
+  const margemContrib = somaMeses((am) => totalAte(3, am));
+  const lucroOper = somaMeses((am) => totalAte(7, am));
+  const lucroLiq = somaMeses((am) => totalAte(99, am));
+  const pctReceita = (v) => receita ? ` (${Math.round(v / receita * 100)}% da receita)` : "";
+
+  const caixas = [
+    ["Receita recebida", fmtMoeda0(receita), "grupo 1 — vendas no período"],
+    ["Margem de contribuição", fmtMoeda0(margemContrib), "após impostos e custos" + pctReceita(margemContrib)],
+    ["Lucro operacional", fmtMoeda0(lucroOper), "após todas as despesas" + pctReceita(lucroOper)],
+    ["Lucro líquido", fmtMoeda0(lucroLiq), "resultado final" + pctReceita(lucroLiq)],
+  ];
+  $("kpis-financeiro").innerHTML = caixas.map(([rotulo, valor, sub]) => `
+    <div class="kpi">
+      <div class="kpi-label">${rotulo}</div>
+      <div class="kpi-valor">${valor}</div>
+      <div class="cd-delta cd-delta-neutro">${escapaHTML(sub)}</div>
+    </div>`).join("");
+
+  if (!dados.length) {
+    tabela.innerHTML = "";
+    tabVazio.classList.remove("oculto");
+    el.classList.add("oculto"); gVazio.classList.remove("oculto");
+    if (GRAFICOS["grafico-financeiro"]) GRAFICOS["grafico-financeiro"].clear();
+    return;
+  }
+  tabVazio.classList.add("oculto");
+
+  // ---- Tabela DRE ----
+  const rotulosMes = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1] + "/" + am.slice(2, 4));
+  const cel = (v, destaque) => {
+    if (!v) return `<td class="num"></td>`;
+    const neg = v < 0 ? " neg" : "";
+    return `<td class="num${neg}">${Math.round(v).toLocaleString("pt-BR")}</td>`;
+  };
+  const linhaValores = (fn, classeTr, rotulo) => {
+    const valores = mesesPeriodo.map(fn);
+    const total = valores.reduce((a, b) => a + b, 0);
+    return `<tr class="${classeTr}"><td>${escapaHTML(rotulo)}</td>` +
+      valores.map((v) => cel(v)).join("") + cel(total) + "</tr>";
+  };
+
+  let corpo = "";
+  for (const g of grupos) {
+    corpo += `<tr class="dre-grupo"><td colspan="${mesesPeriodo.length + 2}">${escapaHTML(g)}</td></tr>`;
+    const classes = Object.keys(arvore[g]).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    for (const c of classes) {
+      corpo += linhaValores((am) => arvore[g][c][am] || 0, "", c);
+    }
+    corpo += linhaValores((am) => totalGrupoMes(g, am), "dre-total", `TOTAL ${g}`);
+    for (const [limite, rotulo] of DRE_CALCULADAS) {
+      if (numGrupo(g) === limite ||
+          (limite === 9 && g === grupos[grupos.length - 1] && numGrupo(g) < 9)) {
+        corpo += linhaValores((am) => totalAte(limite === 9 ? 99 : limite, am),
+                              "dre-destaque", rotulo);
+      }
+    }
+  }
+  tabela.innerHTML =
+    `<thead><tr><th></th>${rotulosMes.map((m) => `<th style="text-align:right">${m}</th>`).join("")}` +
+    `<th style="text-align:right">Total</th></tr></thead><tbody>${corpo}</tbody>`;
+
+  // ---- Gráfico: Receita vs Lucro líquido por mês ----
+  el.classList.remove("oculto"); gVazio.classList.add("oculto");
+  const grad = (base, topo) => new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: topo }, { offset: 1, color: base },
+  ]);
+  const serieReceita = mesesPeriodo.map((am) => totalGrupoMes(grupos.find((g) => numGrupo(g) === 1) || "", am));
+  const serieLucro = mesesPeriodo.map((am) => totalAte(99, am));
+  const rotuloK = (v) => v ? "R$ " + Math.round(v / 1000).toLocaleString("pt-BR") + "k" : "";
+  const g2 = grafico("grafico-financeiro");
+  g2.setOption({
+    animationDuration: 300,
+    grid: { left: 54, right: 14, top: 28, bottom: 30 },
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "shadow" },
+      valueFormatter: (v) => fmtMoeda0(v || 0),
+      textStyle: { fontFamily: FONTE },
+    },
+    xAxis: EIXO_X(mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]), null),
+    yAxis: {
+      type: "value",
+      splitLine: { lineStyle: { color: "#EFE7DA" } },
+      axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
+    },
+    series: [
+      { name: "Receita", type: "bar", data: serieReceita,
+        itemStyle: { color: grad("#8B3C05", "#C9712E"), borderRadius: [4, 4, 0, 0] },
+        barGap: "10%", barCategoryGap: "30%",
+        label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
+                 color: "#000", fontSize: 11, fontWeight: "bold", fontFamily: FONTE } },
+      { name: "Lucro líquido", type: "bar", data: serieLucro,
+        itemStyle: { color: grad("#B8860B", "#D9B84A"), borderRadius: [4, 4, 0, 0] },
+        label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
+                 color: "#000", fontSize: 11, fontWeight: "bold", fontFamily: FONTE } },
+    ],
+  }, true);
+  g2.resize();
+}
+
+// ---------------------------------------------------------------------------
 // Aba Tabela: registros filtrados, com ordenação e paginação
 // ---------------------------------------------------------------------------
 const fmtData = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "";
@@ -1217,6 +1355,16 @@ function mudarVisaoProdutos(visao) {
 $("visao-grandes").addEventListener("click", () => mudarVisaoProdutos("grandes"));
 $("visao-detalhe").addEventListener("click", () => mudarVisaoProdutos("detalhe"));
 
+// Seletor de loja da aba Financeiro
+document.querySelectorAll("#toggle-loja button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    LOJA_SEL = btn.dataset.loja;
+    document.querySelectorAll("#toggle-loja button").forEach(
+      (b) => b.classList.toggle("ativa", b === btn));
+    renderizar();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Render geral
 // ---------------------------------------------------------------------------
@@ -1234,6 +1382,7 @@ function renderizar() {
   renderSegmento(filtrado, mesesPeriodo);
   renderComissionado(filtrado, mesesPeriodo);
   renderProdutos(mesesPeriodo);
+  renderFinanceiro(mesesPeriodo);
   renderTabela();
 }
 

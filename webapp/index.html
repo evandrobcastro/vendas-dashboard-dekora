@@ -90,6 +90,7 @@
         <nav class="cd-tabs">
           <button class="tab ativa" data-aba="aba-comercial">Comercial</button>
           <button class="tab" data-aba="aba-produtos">Produtos</button>
+          <button class="tab" data-aba="aba-financeiro">Financeiro</button>
           <button class="tab" data-aba="aba-tabela">Tabela</button>
           <button class="tab" data-aba="aba-metas">Metas</button>
           <button class="tab" data-aba="aba-log">Log de sincronização</button>
@@ -197,6 +198,45 @@
           <section class="duas-colunas">
             <div class="cd-card" id="rank-produtos-valor"></div>
             <div class="cd-card" id="rank-produtos-m2"></div>
+          </section>
+        </div>
+
+        <!-- ================= ABA FINANCEIRO ================= -->
+        <div id="aba-financeiro" class="aba-conteudo oculto">
+          <p class="cd-nota">
+            DRE em regime de caixa — considera apenas pagamentos e recebimentos
+            já liquidados (fonte: Desempenho Financeiro do ECG). Usa o filtro de
+            período; os demais filtros da barra lateral não se aplicam aqui.
+          </p>
+
+          <section id="kpis-financeiro" class="kpi-grid"></section>
+
+          <section class="cd-card">
+            <div class="card-cabecalho">
+              <h4>DRE — Demonstrativo de Resultado</h4>
+              <div class="visao-toggle" id="toggle-loja">
+                <button data-loja="CASA DEKORA" class="ativa" type="button">CASA DEKORA</button>
+                <button data-loja="LACA 108" type="button">LACA 108</button>
+              </div>
+            </div>
+            <div class="tabela-scroll">
+              <table class="cd-table cd-dre" id="tabela-dre"></table>
+            </div>
+            <div id="tabela-dre-vazio" class="grafico-vazio oculto">
+              Sem lançamentos financeiros para esta loja no período.
+            </div>
+          </section>
+
+          <section class="cd-card">
+            <h4>Receita vs Lucro líquido</h4>
+            <div id="grafico-financeiro" class="grafico"></div>
+            <div id="grafico-financeiro-vazio" class="grafico-vazio oculto">
+              Sem dados financeiros no período.
+            </div>
+            <div class="cd-chart-legend">
+              <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Receita</span>
+              <span><i style="background:linear-gradient(180deg,#D9B84A,#B8860B)"></i>Lucro líquido</span>
+            </div>
           </section>
         </div>
 

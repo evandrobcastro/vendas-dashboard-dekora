@@ -39,6 +39,7 @@ const COLS_LOG = ["executado_em", "linhas_novas", "linhas_atualizadas",
 const COLS_PRODUTOS = ["ano_mes", "classe", "subclasse", "quantidade",
                        "m2_vidro", "m2_inst", "peso_perfil", "valor_venda",
                        "valor_custo", "lucro"];
+const COLS_FINANCEIRO = ["ano_mes", "loja", "grupo", "classe", "valor"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -79,6 +80,13 @@ Deno.serve(async (req: Request) => {
     } catch (_e) {
       // tabela produtos ainda nao existe: segue sem ela
     }
+    let financeiro: any[] = [];
+    try {
+      financeiro = await sql`
+        select ano_mes, loja, grupo, classe, valor from financeiro`;
+    } catch (_e) {
+      // tabela financeiro ainda nao existe: segue sem ela
+    }
 
     return json({
       usuario,
@@ -99,6 +107,10 @@ Deno.serve(async (req: Request) => {
       produtos: {
         columns: COLS_PRODUTOS,
         rows: produtos.map((r) => COLS_PRODUTOS.map((c) => r[c] ?? null)),
+      },
+      financeiro: {
+        columns: COLS_FINANCEIRO,
+        rows: financeiro.map((r) => COLS_FINANCEIRO.map((c) => r[c] ?? null)),
       },
     });
   } catch (e) {

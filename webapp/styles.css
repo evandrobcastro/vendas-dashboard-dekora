@@ -312,6 +312,20 @@ body {
 .paginacao button:disabled { opacity: 0.4; cursor: default; }
 .paginacao button:not(:disabled):hover { background: var(--areia); }
 
+/* DRE (aba Financeiro) */
+.cd-dre td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cd-dre td.neg { color: var(--vermelho); }
+.cd-dre tr.dre-grupo td {
+  background: var(--preto); color: var(--branco); font-weight: 800;
+  text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px;
+}
+.cd-dre tr.dre-total td { background: #EFE7DA; font-weight: 700; }
+.cd-dre tr.dre-destaque td {
+  background: var(--terracota); color: var(--branco); font-weight: 800;
+}
+.cd-dre tr.dre-destaque td.neg { color: #FFD6D0; }
+.cd-dre td:first-child { white-space: nowrap; }
+
 /* ---------------- Formulários (Metas / Administração) ---------------- */
 .cd-nota { font-size: 12px; color: var(--madeira); font-weight: 600; margin: 0 0 12px 0; }
 .form-meta { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 12px; align-items: end; }
