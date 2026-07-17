@@ -29,6 +29,21 @@ const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
 const PALETA_SEG = ["#8B3C05", "#C9712E", "#8A6A4A", "#B8860B", "#B9AD9E", "#D8CFC0", "#6E4B2A"];
 // Classes de produto podem passar de 7: mais dois tons da marca p/ nao repetir
 const PALETA_CLASSES = [...PALETA_SEG, "#4E342E", "#DBA05B"];
+
+// Grandes classes: agrupamento definido pelo usuário (17/07/2026).
+// Classe que não estiver no mapa aparece com o próprio nome.
+const GRANDES_CLASSES = {
+  "DECORAÇÃO PEÇA AVULSA": "DECORAÇÃO",
+  "DECORAÇÃO ESPELHOS CASA DEKORA": "DECORAÇÃO",
+  "DECORAÇÃO ESPELHOS MOLDURA AÇO": "DECORAÇÃO",
+  "ENGENHARIA / TEMPERADO": "ENGENHARIA",
+  "GUARDA CORPO": "ENGENHARIA",
+  "ROLLDOOR": "ENGENHARIA",
+  "ESQUADRIA ALUMÍNIO": "ESQUADRIA",
+  "PORTÃO": "ESQUADRIA",
+  "LACA108": "LACA108",
+};
+const grandeClasse = (c) => GRANDES_CLASSES[c] || c;
 const CORES_COMISS = { "Comissionado": "#C9712E", "Cliente Final": "#8B3C05" };
 const ORDEM_COMISS = ["Comissionado", "Cliente Final"]; // base -> topo
 
@@ -52,6 +67,9 @@ let SYNC_LOG = [];
 let PRODUTOS = [];
 let CLASSES_ORDEM = [];
 let CORES_CLASSE = {};
+let GC_ORDEM = [];
+let CORES_GC = {};
+let PRODUTOS_VISAO = "grandes"; // "grandes" | "detalhe"
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
 const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
@@ -176,6 +194,14 @@ async function carregarDados() {
       .sort((a, b) => b[1] - a[1]).map(([c]) => c);
     CORES_CLASSE = {};
     CLASSES_ORDEM.forEach((c, i) => { CORES_CLASSE[c] = PALETA_CLASSES[i % PALETA_CLASSES.length]; });
+    const totalPorGC = {};
+    for (const p of PRODUTOS) {
+      const gc = grandeClasse(p.classe);
+      totalPorGC[gc] = (totalPorGC[gc] || 0) + (p.valor_venda || 0);
+    }
+    GC_ORDEM = Object.entries(totalPorGC).sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    CORES_GC = {};
+    GC_ORDEM.forEach((c, i) => { CORES_GC[c] = PALETA_CLASSES[i % PALETA_CLASSES.length]; });
 
     // Ordem/cor fixa dos segmentos, pelo total geral de vendas (todos os dados)
     const totalPorSeg = {};
@@ -548,8 +574,11 @@ function pizza(idEl, idVazio, dados, coresPorNome, rotuloInterno = false) {
   }
   el.classList.remove("oculto"); vazio.classList.add("oculto");
   // Com poucas fatias grandes o rótulo cabe dentro (fora, na horizontal,
-  // ele encosta na borda do cartão e o ECharts corta com "…").
-  const label = rotuloInterno
+  // ele encosta na borda do cartão e o ECharts corta com "…"). Se todas as
+  // fatias têm >=10%, usa rótulo interno automaticamente.
+  const total = comValor.reduce((t, d) => t + d.value, 0);
+  const interno = rotuloInterno || comValor.every((d) => d.value / total >= 0.1);
+  const label = interno
     ? { position: "inside", formatter: (p) => Math.round(p.percent) + "%",
         color: "#fff", fontSize: 11, fontWeight: "bold", fontFamily: FONTE,
         textBorderColor: "#3a2410", textBorderWidth: 2 }
@@ -568,7 +597,7 @@ function pizza(idEl, idVazio, dados, coresPorNome, rotuloInterno = false) {
       type: "pie", radius: ["32%", "62%"],
       data: comValor.map((d) => ({ ...d, itemStyle: { color: coresPorNome[d.name] } })),
       label,
-      labelLine: { show: !rotuloInterno, lineStyle: { color: "#B9AD9E" } },
+      labelLine: { show: !interno, lineStyle: { color: "#B9AD9E" } },
     }],
   }, true);
   g.resize();
@@ -746,13 +775,19 @@ function renderProdutos(mesesPeriodo) {
       <div class="cd-delta cd-delta-neutro">${escapaHTML(sub)}</div>
     </div>`).join("");
 
-  // ---- Evolução mensal empilhada por classe ----
+  // ---- Evolução mensal empilhada por classe (grandes classes ou detalhado) ----
+  const detalhe = PRODUTOS_VISAO === "detalhe";
+  const chaveClasse = detalhe ? (c) => c : grandeClasse;
+  const ordemClasses = detalhe ? CLASSES_ORDEM : GC_ORDEM;
+  const coresClasses = detalhe ? CORES_CLASSE : CORES_GC;
+
   const el = $("grafico-produtos"), vazio = $("grafico-produtos-vazio");
   const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
   const porMesClasse = {};
   for (const p of doPeriodo) {
-    (porMesClasse[p.ano_mes] ??= {})[p.classe] =
-      (porMesClasse[p.ano_mes][p.classe] || 0) + (p.valor_venda || 0);
+    const cl = chaveClasse(p.classe);
+    (porMesClasse[p.ano_mes] ??= {})[cl] =
+      (porMesClasse[p.ano_mes][cl] || 0) + (p.valor_venda || 0);
   }
   const totaisMes = mesesPeriodo.map(
     (am) => Object.values(porMesClasse[am] || {}).reduce((a, b) => a + b, 0)
@@ -780,10 +815,10 @@ function renderProdutos(mesesPeriodo) {
         splitLine: { lineStyle: { color: "#EFE7DA" } },
         axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
       },
-      series: CLASSES_ORDEM.map((classe) => ({
+      series: ordemClasses.map((classe) => ({
         name: classe, type: "bar", stack: "total", barCategoryGap: "35%",
         data: mesesPeriodo.map((am) => porMesClasse[am]?.[classe] || 0),
-        itemStyle: { color: CORES_CLASSE[classe] },
+        itemStyle: { color: coresClasses[classe] },
         label: ROTULO_HALO(
           (p) => p.value >= limiar ? Math.round(p.value).toLocaleString("pt-BR") : "", 9),
       })),
@@ -794,11 +829,12 @@ function renderProdutos(mesesPeriodo) {
   // ---- Mix por classe (pizza) + legenda ----
   const totalClassePeriodo = {};
   for (const p of doPeriodo) {
-    totalClassePeriodo[p.classe] = (totalClassePeriodo[p.classe] || 0) + (p.valor_venda || 0);
+    const cl = chaveClasse(p.classe);
+    totalClassePeriodo[cl] = (totalClassePeriodo[cl] || 0) + (p.valor_venda || 0);
   }
   pizza("pizza-produtos", "pizza-produtos-vazio",
-        CLASSES_ORDEM.map((c) => ({ name: c, value: totalClassePeriodo[c] || 0 })), CORES_CLASSE);
-  legendaHTML("legenda-produtos", CLASSES_ORDEM, CORES_CLASSE);
+        ordemClasses.map((c) => ({ name: c, value: totalClassePeriodo[c] || 0 })), coresClasses);
+  legendaHTML("legenda-produtos", ordemClasses, coresClasses);
 
   // ---- Rankings de subclasses ----
   const rankHTML = (titulo, itens, fmt) => {
@@ -1170,6 +1206,16 @@ document.querySelectorAll(".cd-tabs .tab").forEach((btn) => {
 });
 $("tab-ant").addEventListener("click", () => { TABELA.pagina--; renderTabela(); });
 $("tab-prox").addEventListener("click", () => { TABELA.pagina++; renderTabela(); });
+
+// Visão da aba Produtos: grandes classes x detalhado
+function mudarVisaoProdutos(visao) {
+  PRODUTOS_VISAO = visao;
+  $("visao-grandes").classList.toggle("ativa", visao === "grandes");
+  $("visao-detalhe").classList.toggle("ativa", visao === "detalhe");
+  renderizar();
+}
+$("visao-grandes").addEventListener("click", () => mudarVisaoProdutos("grandes"));
+$("visao-detalhe").addEventListener("click", () => mudarVisaoProdutos("detalhe"));
 
 // ---------------------------------------------------------------------------
 // Render geral

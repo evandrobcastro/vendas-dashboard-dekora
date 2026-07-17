@@ -272,6 +272,19 @@ body {
 .cd-chart-legend span { display: inline-flex; align-items: center; white-space: nowrap; }
 .cd-chart-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; }
 
+/* Seletor de visão (Grandes classes / Detalhado) */
+.card-cabecalho { display: flex; align-items: center; justify-content: space-between;
+                  flex-wrap: wrap; gap: 8px; }
+.card-cabecalho h4 { margin-bottom: 8px; }
+.visao-toggle { display: inline-flex; border: 1px solid #E3D9C8; border-radius: 6px;
+                overflow: hidden; margin-bottom: 8px; }
+.visao-toggle button {
+  background: #FAF6EF; border: none; color: var(--madeira);
+  font-family: inherit; font-size: 11.5px; font-weight: 700;
+  padding: 6px 12px; cursor: pointer;
+}
+.visao-toggle button.ativa { background: var(--terracota); color: var(--branco); }
+
 /* ---------------- Tabelas ---------------- */
 .tabela-scroll { overflow-x: auto; }
 .cd-table { width: 100%; border-collapse: collapse; font-size: 13px; }

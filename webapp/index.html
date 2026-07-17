@@ -172,7 +172,13 @@
           <section>
             <div class="linha-graficos">
               <div class="cd-card g70">
-                <h4>Vendas por classe de produto</h4>
+                <div class="card-cabecalho">
+                  <h4>Vendas por classe de produto</h4>
+                  <div class="visao-toggle">
+                    <button id="visao-grandes" class="ativa" type="button">Grandes classes</button>
+                    <button id="visao-detalhe" type="button">Detalhado</button>
+                  </div>
+                </div>
                 <div id="grafico-produtos" class="grafico grafico-alto"></div>
                 <div id="grafico-produtos-vazio" class="grafico-vazio oculto">
                   Sem produtos no período selecionado.
