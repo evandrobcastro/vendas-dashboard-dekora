@@ -27,6 +27,8 @@ const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun",
 // Cores fixas por segmento, em tons da marca (terracota + neutros). A ordem
 // (e portanto a cor) vem do total geral, então não muda com o filtro.
 const PALETA_SEG = ["#8B3C05", "#C9712E", "#8A6A4A", "#B8860B", "#B9AD9E", "#D8CFC0", "#6E4B2A"];
+// Classes de produto podem passar de 7: mais dois tons da marca p/ nao repetir
+const PALETA_CLASSES = [...PALETA_SEG, "#4E342E", "#DBA05B"];
 const CORES_COMISS = { "Comissionado": "#C9712E", "Cliente Final": "#8B3C05" };
 const ORDEM_COMISS = ["Comissionado", "Cliente Final"]; // base -> topo
 
@@ -47,6 +49,9 @@ let FILTROS = { inicio: "", fim: "", vendedores: [], cidades: [], situacoes: [],
 let SEGMENTOS_ORDEM = [];
 let CORES_SEG = {};
 let SYNC_LOG = [];
+let PRODUTOS = [];
+let CLASSES_ORDEM = [];
+let CORES_CLASSE = {};
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
 const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
@@ -160,6 +165,17 @@ async function carregarDados() {
     }
     METAS = paraObjetos(d.metas);
     SYNC_LOG = d.sync_log ? paraObjetos(d.sync_log) : [];
+    PRODUTOS = d.produtos ? paraObjetos(d.produtos) : [];
+
+    // Ordem/cor fixa das classes de produto, pelo total geral de vendas
+    const totalPorClasse = {};
+    for (const p of PRODUTOS) {
+      totalPorClasse[p.classe] = (totalPorClasse[p.classe] || 0) + (p.valor_venda || 0);
+    }
+    CLASSES_ORDEM = Object.entries(totalPorClasse)
+      .sort((a, b) => b[1] - a[1]).map(([c]) => c);
+    CORES_CLASSE = {};
+    CLASSES_ORDEM.forEach((c, i) => { CORES_CLASSE[c] = PALETA_CLASSES[i % PALETA_CLASSES.length]; });
 
     // Ordem/cor fixa dos segmentos, pelo total geral de vendas (todos os dados)
     const totalPorSeg = {};
@@ -537,8 +553,9 @@ function pizza(idEl, idVazio, dados, coresPorNome, rotuloInterno = false) {
     ? { position: "inside", formatter: (p) => Math.round(p.percent) + "%",
         color: "#fff", fontSize: 11, fontWeight: "bold", fontFamily: FONTE,
         textBorderColor: "#3a2410", textBorderWidth: 2 }
-    : { formatter: (p) => Math.round(p.percent) + "%", color: "#5b5048",
-        fontSize: 10, fontWeight: "bold", fontFamily: FONTE };
+    : { formatter: (p) => p.percent >= 2 ? Math.round(p.percent) + "%" : "",
+        color: "#5b5048", fontSize: 10, fontWeight: "bold", fontFamily: FONTE,
+        alignTo: "edge", edgeDistance: 6 };
   const g = grafico(idEl);
   g.setOption({
     animationDuration: 300,
@@ -548,7 +565,7 @@ function pizza(idEl, idVazio, dados, coresPorNome, rotuloInterno = false) {
       textStyle: { fontFamily: FONTE },
     },
     series: [{
-      type: "pie", radius: ["35%", "68%"],
+      type: "pie", radius: ["32%", "62%"],
       data: comValor.map((d) => ({ ...d, itemStyle: { color: coresPorNome[d.name] } })),
       label,
       labelLine: { show: !rotuloInterno, lineStyle: { color: "#B9AD9E" } },
@@ -690,6 +707,120 @@ function renderComissionado(filtrado, mesesPeriodo) {
   pizza("pizza-comissionado", "pizza-comissionado-vazio",
         ORDEM_COMISS.map((c) => ({ name: c, value: totalPorCat[c] })), CORES_COMISS, true);
   legendaHTML("legenda-comissionado", ORDEM_COMISS, CORES_COMISS);
+}
+
+// ---------------------------------------------------------------------------
+// Aba Produtos: KPIs, evolução mensal por classe, mix e rankings
+// ---------------------------------------------------------------------------
+const fmtM2 = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 }) + " m²";
+
+function renderProdutos(mesesPeriodo) {
+  const doPeriodo = PRODUTOS.filter((p) => mesesPeriodo.includes(p.ano_mes));
+
+  // ---- KPIs ----
+  const soma = (campo) => doPeriodo.reduce((t, p) => t + (p[campo] || 0), 0);
+  const m2 = soma("m2_vidro");
+  const venda = soma("valor_venda");
+  const lucro = soma("lucro");
+  const valorM2 = m2 ? venda / m2 : 0;
+  const margem = venda ? (lucro / venda) * 100 : 0;
+
+  const porSub = {};
+  for (const p of doPeriodo) {
+    const chave = p.subclasse;
+    (porSub[chave] ??= { valor: 0, m2: 0 }).valor += p.valor_venda || 0;
+    porSub[chave].m2 += p.m2_vidro || 0;
+  }
+  const campeao = Object.entries(porSub).sort((a, b) => b[1].valor - a[1].valor)[0];
+
+  const caixas = [
+    ["M² de vidro vendidos", fmtM2(m2), `média de ${fmtM2(mesesPeriodo.length ? m2 / mesesPeriodo.length : 0)}/mês`],
+    ["Valor médio do m²", fmtMoeda2(valorM2), `sobre ${fmtMoeda0(venda)} vendidos`],
+    ["Produto campeão", campeao ? campeao[0] : "—", campeao ? `${fmtMoeda0(campeao[1].valor)} no período` : "sem dados"],
+    ["Margem de lucro", fmtPct(margem), `${fmtMoeda0(lucro)} de lucro`],
+  ];
+  $("kpis-produtos").innerHTML = caixas.map(([rotulo, valor, sub], i) => `
+    <div class="kpi">
+      <div class="kpi-label">${rotulo}</div>
+      <div class="kpi-valor${i === 2 ? " kpi-valor-texto" : ""}">${escapaHTML(valor)}</div>
+      <div class="cd-delta cd-delta-neutro">${escapaHTML(sub)}</div>
+    </div>`).join("");
+
+  // ---- Evolução mensal empilhada por classe ----
+  const el = $("grafico-produtos"), vazio = $("grafico-produtos-vazio");
+  const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+  const porMesClasse = {};
+  for (const p of doPeriodo) {
+    (porMesClasse[p.ano_mes] ??= {})[p.classe] =
+      (porMesClasse[p.ano_mes][p.classe] || 0) + (p.valor_venda || 0);
+  }
+  const totaisMes = mesesPeriodo.map(
+    (am) => Object.values(porMesClasse[am] || {}).reduce((a, b) => a + b, 0)
+  );
+  const maiorColuna = Math.max(...totaisMes, 0);
+  const limiar = maiorColuna * 0.05;
+
+  if (maiorColuna === 0) {
+    el.classList.add("oculto"); vazio.classList.remove("oculto");
+    if (GRAFICOS["grafico-produtos"]) GRAFICOS["grafico-produtos"].clear();
+  } else {
+    el.classList.remove("oculto"); vazio.classList.add("oculto");
+    const g = grafico("grafico-produtos");
+    g.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 16, bottom: 46 },
+      tooltip: {
+        trigger: "item",
+        formatter: (p) => `${p.name} — ${p.seriesName}<br>${fmtMoeda2(p.value)}`,
+        textStyle: { fontFamily: FONTE },
+      },
+      xAxis: EIXO_X(rotulos, "Mês aprovação"),
+      yAxis: {
+        type: "value",
+        splitLine: { lineStyle: { color: "#EFE7DA" } },
+        axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
+      },
+      series: CLASSES_ORDEM.map((classe) => ({
+        name: classe, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => porMesClasse[am]?.[classe] || 0),
+        itemStyle: { color: CORES_CLASSE[classe] },
+        label: ROTULO_HALO(
+          (p) => p.value >= limiar ? Math.round(p.value).toLocaleString("pt-BR") : "", 9),
+      })),
+    }, true);
+    g.resize();
+  }
+
+  // ---- Mix por classe (pizza) + legenda ----
+  const totalClassePeriodo = {};
+  for (const p of doPeriodo) {
+    totalClassePeriodo[p.classe] = (totalClassePeriodo[p.classe] || 0) + (p.valor_venda || 0);
+  }
+  pizza("pizza-produtos", "pizza-produtos-vazio",
+        CLASSES_ORDEM.map((c) => ({ name: c, value: totalClassePeriodo[c] || 0 })), CORES_CLASSE);
+  legendaHTML("legenda-produtos", CLASSES_ORDEM, CORES_CLASSE);
+
+  // ---- Rankings de subclasses ----
+  const rankHTML = (titulo, itens, fmt) => {
+    if (!itens.length) {
+      return `<h4>${titulo}</h4><div class="grafico-vazio">Sem dados no período selecionado.</div>`;
+    }
+    const maximo = itens[0][1] || 1;
+    return `<h4>${titulo}</h4>` + itens.map(([nome, valor], i) => `
+      <div class="cd-rank-row">
+        <div class="cd-rank-num">${i + 1}</div>
+        <div class="cd-rank-name" title="${escapaHTML(nome)}">${escapaHTML(nome)}</div>
+        <div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:${Math.round(valor / maximo * 100)}%"></div></div>
+        <div class="cd-rank-value">${fmt(valor)}</div>
+      </div>`).join("");
+  };
+  const topValor = Object.entries(porSub).map(([n, v]) => [n, v.valor])
+    .sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const topM2 = Object.entries(porSub).map(([n, v]) => [n, v.m2])
+    .filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  $("rank-produtos-valor").innerHTML = rankHTML("Top produtos — valor",
+    topValor, (v) => "R$ " + Math.round(v / 1000).toLocaleString("pt-BR") + "k");
+  $("rank-produtos-m2").innerHTML = rankHTML("Top produtos — m² de vidro", topM2, fmtM2);
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,9 +1164,8 @@ document.querySelectorAll(".cd-tabs .tab").forEach((btn) => {
     document.querySelectorAll(".aba-conteudo").forEach((a) => a.classList.add("oculto"));
     btn.classList.add("ativa");
     $(btn.dataset.aba).classList.remove("oculto");
-    if (btn.dataset.aba === "aba-comercial") {
-      Object.values(GRAFICOS).forEach((g) => g.resize());
-    }
+    // gráficos inicializados com a aba oculta precisam de resize ao aparecer
+    Object.values(GRAFICOS).forEach((g) => g.resize());
   });
 });
 $("tab-ant").addEventListener("click", () => { TABELA.pagina--; renderTabela(); });
@@ -1057,6 +1187,7 @@ function renderizar() {
   renderRankings(filtrado);
   renderSegmento(filtrado, mesesPeriodo);
   renderComissionado(filtrado, mesesPeriodo);
+  renderProdutos(mesesPeriodo);
   renderTabela();
 }
 

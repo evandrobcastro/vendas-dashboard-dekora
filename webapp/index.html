@@ -89,6 +89,7 @@
       <main class="cd-main">
         <nav class="cd-tabs">
           <button class="tab ativa" data-aba="aba-comercial">Comercial</button>
+          <button class="tab" data-aba="aba-produtos">Produtos</button>
           <button class="tab" data-aba="aba-tabela">Tabela</button>
           <button class="tab" data-aba="aba-metas">Metas</button>
           <button class="tab" data-aba="aba-log">Log de sincronização</button>
@@ -155,6 +156,43 @@
           <div id="legenda-comissionado" class="cd-chart-legend legenda-bloco"></div>
         </section>
         </div><!-- /aba-comercial -->
+
+        <!-- ================= ABA PRODUTOS ================= -->
+        <div id="aba-produtos" class="aba-conteudo oculto">
+          <p class="cd-nota">
+            Vendas por classe/subclasse de produto (data de aprovação, pedidos
+            aprovados/fechados). Usa o filtro de período — os demais filtros da
+            barra lateral não se aplicam aqui.
+          </p>
+
+          <!-- KPIs de produto -->
+          <section id="kpis-produtos" class="kpi-grid"></section>
+
+          <!-- Evolução mensal por classe (70%) + mix (30%) -->
+          <section>
+            <div class="linha-graficos">
+              <div class="cd-card g70">
+                <h4>Vendas por classe de produto</h4>
+                <div id="grafico-produtos" class="grafico grafico-alto"></div>
+                <div id="grafico-produtos-vazio" class="grafico-vazio oculto">
+                  Sem produtos no período selecionado.
+                </div>
+              </div>
+              <div class="cd-card g30">
+                <h4>Mix por classe</h4>
+                <div id="pizza-produtos" class="grafico grafico-alto"></div>
+                <div id="pizza-produtos-vazio" class="grafico-vazio oculto">Sem dados.</div>
+              </div>
+            </div>
+            <div id="legenda-produtos" class="cd-chart-legend legenda-bloco"></div>
+          </section>
+
+          <!-- Rankings -->
+          <section class="duas-colunas">
+            <div class="cd-card" id="rank-produtos-valor"></div>
+            <div class="cd-card" id="rank-produtos-m2"></div>
+          </section>
+        </div>
 
         <!-- ================= ABA TABELA ================= -->
         <div id="aba-tabela" class="aba-conteudo oculto">

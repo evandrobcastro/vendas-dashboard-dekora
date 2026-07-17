@@ -230,6 +230,8 @@ body {
   margin-bottom: 6px;
 }
 .kpi .kpi-valor { font-weight: 800; font-size: 24px; }
+.kpi .kpi-valor-texto { font-size: 15px; line-height: 1.35; min-height: 40px;
+                        display: flex; align-items: center; }
 .cd-delta { font-size: 12px; font-weight: 700; margin-top: 4px; }
 .cd-delta-up { color: var(--verde); }
 .cd-delta-down { color: var(--vermelho); }
