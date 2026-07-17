@@ -36,6 +36,9 @@ const COLS_REGISTROS = [
 const COLS_METAS = ["tipo_kpi", "vendedor", "ano_mes", "valor_meta", "atualizado_em"];
 const COLS_LOG = ["executado_em", "linhas_novas", "linhas_atualizadas",
                   "linhas_removidas", "status", "mensagem"];
+const COLS_PRODUTOS = ["ano_mes", "classe", "subclasse", "quantidade",
+                       "m2_vidro", "m2_inst", "peso_perfil", "valor_venda",
+                       "valor_custo", "lucro"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -67,6 +70,15 @@ Deno.serve(async (req: Request) => {
       select executado_em, linhas_novas, linhas_atualizadas, linhas_removidas,
              status, mensagem
       from sync_log order by executado_em desc limit 20`;
+    let produtos: any[] = [];
+    try {
+      produtos = await sql`
+        select ano_mes, classe, subclasse, quantidade, m2_vidro, m2_inst,
+               peso_perfil, valor_venda, valor_custo, lucro
+        from produtos`;
+    } catch (_e) {
+      // tabela produtos ainda nao existe: segue sem ela
+    }
 
     return json({
       usuario,
@@ -83,6 +95,10 @@ Deno.serve(async (req: Request) => {
       sync_log: {
         columns: COLS_LOG,
         rows: syncLog.map((r) => COLS_LOG.map((c) => r[c] ?? null)),
+      },
+      produtos: {
+        columns: COLS_PRODUTOS,
+        rows: produtos.map((r) => COLS_PRODUTOS.map((c) => r[c] ?? null)),
       },
     });
   } catch (e) {

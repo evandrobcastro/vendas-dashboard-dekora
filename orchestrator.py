@@ -56,6 +56,23 @@ def executar(dias: int = 7, headless: bool = True, notificar: bool = True) -> di
         resultado = sincronizar(df)
         log.info("Storage concluido: %s", resultado)
 
+        # Produtos por classe/subclasse (Vendas por Projeto): atualiza o mes
+        # corrente + anterior. Isolado: falha aqui nao derruba a sincronizacao
+        # principal de vendas/orcamentos.
+        try:
+            from produtos_erp import coletar_meses
+            from storage_produtos import sincronizar_produtos
+            mes_ant = (hoje.replace(day=1) - timedelta(days=1))
+            meses = [mes_ant.strftime("%Y-%m"), hoje.strftime("%Y-%m")]
+            linhas_prod = coletar_meses(
+                os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), meses, headless=headless
+            )
+            resultado.update(sincronizar_produtos(linhas_prod, meses))
+            log.info("Produtos sincronizados: %s meses, %s linhas",
+                     resultado.get("meses_produtos"), resultado.get("linhas_produtos"))
+        except Exception:
+            log.exception("Falha na sincronizacao de produtos (vendas/orcamentos OK)")
+
     except (ValidacaoError, Exception) as e:
         erro = str(e)
         log.exception("Falha na sincronizacao")

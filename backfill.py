@@ -40,6 +40,25 @@ def rodar(data_inicio: date, data_fim: date) -> dict:
 
     resultado = sincronizar(df)
     print(f"Storage concluido: {resultado}")
+
+    # Produtos por classe/subclasse dos mesmos meses. Isolado: falha aqui
+    # nao invalida o backfill principal.
+    try:
+        from produtos_erp import coletar_meses
+        from storage_produtos import sincronizar_produtos
+        meses = []
+        ano, mes = data_inicio.year, data_inicio.month
+        while (ano, mes) <= (data_fim.year, data_fim.month):
+            meses.append(f"{ano}-{mes:02d}")
+            mes += 1
+            if mes > 12:
+                mes, ano = 1, ano + 1
+        linhas = coletar_meses(os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), meses)
+        resultado.update(sincronizar_produtos(linhas, meses))
+        print(f"Produtos concluido: {resultado.get('linhas_produtos')} linhas em {len(meses)} meses")
+    except Exception as e:
+        print(f"AVISO: falha na sincronizacao de produtos ({e}); backfill principal OK")
+
     return resultado
 
 
