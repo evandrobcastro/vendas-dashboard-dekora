@@ -227,17 +227,74 @@
             </div>
           </section>
 
-          <section class="cd-card">
-            <h4>Receita vs Lucro líquido</h4>
-            <div id="grafico-financeiro" class="grafico"></div>
-            <div id="grafico-financeiro-vazio" class="grafico-vazio oculto">
-              Sem dados financeiros no período.
-            </div>
-            <div class="cd-chart-legend">
-              <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Receita</span>
-              <span><i style="background:linear-gradient(180deg,#D9B84A,#B8860B)"></i>Lucro líquido</span>
-            </div>
-          </section>
+          <div id="fin-graficos">
+            <!-- 1. Cascata do resultado -->
+            <section class="cd-card">
+              <h4>Cascata do resultado</h4>
+              <div id="grafico-cascata" class="grafico grafico-alto"></div>
+            </section>
+
+            <!-- 2. Margens % | 4. Ponto de equilíbrio -->
+            <section class="duas-colunas">
+              <div class="cd-card">
+                <h4>Evolução das margens (%)</h4>
+                <div id="grafico-margens" class="grafico"></div>
+                <div class="cd-chart-legend">
+                  <span><i style="background:#8B3C05"></i>Margem de contribuição</span>
+                  <span><i style="background:#B8860B"></i>Lucro operacional</span>
+                  <span><i style="background:#8A6A4A"></i>Margem líquida</span>
+                </div>
+              </div>
+              <div class="cd-card">
+                <h4>Ponto de equilíbrio vs receita</h4>
+                <div id="grafico-pe" class="grafico"></div>
+                <div class="cd-chart-legend">
+                  <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Receita recebida</span>
+                  <span><i style="background:#B8860B"></i>Ponto de equilíbrio</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- 3. Para onde vai o dinheiro -->
+            <section>
+              <div class="linha-graficos">
+                <div class="cd-card g70">
+                  <h4>Para onde vai o dinheiro</h4>
+                  <div id="grafico-saidas" class="grafico grafico-alto"></div>
+                </div>
+                <div class="cd-card g30">
+                  <h4>Composição das saídas</h4>
+                  <div id="pizza-saidas" class="grafico grafico-alto"></div>
+                  <div id="pizza-saidas-vazio" class="grafico-vazio oculto">Sem dados.</div>
+                </div>
+              </div>
+              <div id="legenda-saidas" class="cd-chart-legend legenda-bloco"></div>
+            </section>
+
+            <!-- Ranking de despesas | 5. Caixa -->
+            <section class="duas-colunas">
+              <div class="cd-card" id="rank-despesas"></div>
+              <div class="cd-card">
+                <h4>Caixa — entradas vs saídas</h4>
+                <div id="grafico-caixa" class="grafico"></div>
+                <div class="cd-chart-legend">
+                  <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Entradas</span>
+                  <span><i style="background:#A89B89"></i>Saídas</span>
+                  <span><i style="background:#B8860B"></i>Saldo do mês</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- 6. Recebido vs vendido -->
+            <section class="cd-card">
+              <h4>Recebido (caixa) vs vendido (aprovação)</h4>
+              <div id="grafico-recebido-vendido" class="grafico"></div>
+              <div class="cd-chart-legend">
+                <span><i style="background:linear-gradient(180deg,#C9712E,#8B3C05)"></i>Vendido (data de aprovação)</span>
+                <span><i style="background:linear-gradient(180deg,#D9B84A,#B8860B)"></i>Recebido (caixa)</span>
+              </div>
+            </section>
+          </div>
         </div>
 
         <!-- ================= ABA TABELA ================= -->

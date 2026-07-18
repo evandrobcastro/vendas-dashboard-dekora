@@ -531,8 +531,12 @@ const EIXO_X = (rotulos, nome) => ({
   axisLine: { lineStyle: { color: "#B9AD9E" } }, axisTick: { show: false },
   axisLabel: { color: "#8A6A4A", fontWeight: 600, fontFamily: FONTE },
 });
-const compactoBR = (v) => v >= 1e6 ? (v / 1e6).toLocaleString("pt-BR") + "M"
-                        : v >= 1e3 ? Math.round(v / 1e3) + "k" : v;
+const compactoBR = (v) => {
+  const a = Math.abs(v), s = v < 0 ? "-" : "";
+  if (a >= 1e6) return s + (a / 1e6).toLocaleString("pt-BR") + "M";
+  if (a >= 1e3) return s + Math.round(a / 1e3) + "k";
+  return v;
+};
 
 function renderRankings(filtrado) {
   const topPor = (tipo) => {
@@ -879,7 +883,6 @@ function renderFinanceiro(mesesPeriodo) {
     (f) => f.loja === LOJA_SEL && mesesPeriodo.includes(f.ano_mes)
   );
   const tabela = $("tabela-dre"), tabVazio = $("tabela-dre-vazio");
-  const el = $("grafico-financeiro"), gVazio = $("grafico-financeiro-vazio");
 
   // grupo -> classe -> {ano_mes: valor}
   const arvore = {};
@@ -919,11 +922,11 @@ function renderFinanceiro(mesesPeriodo) {
   if (!dados.length) {
     tabela.innerHTML = "";
     tabVazio.classList.remove("oculto");
-    el.classList.add("oculto"); gVazio.classList.remove("oculto");
-    if (GRAFICOS["grafico-financeiro"]) GRAFICOS["grafico-financeiro"].clear();
+    $("fin-graficos").classList.add("oculto");
     return;
   }
   tabVazio.classList.add("oculto");
+  $("fin-graficos").classList.remove("oculto");
 
   // ---- Tabela DRE ----
   const rotulosMes = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1] + "/" + am.slice(2, 4));
@@ -959,42 +962,254 @@ function renderFinanceiro(mesesPeriodo) {
     `<thead><tr><th></th>${rotulosMes.map((m) => `<th style="text-align:right">${m}</th>`).join("")}` +
     `<th style="text-align:right">Total</th></tr></thead><tbody>${corpo}</tbody>`;
 
-  // ---- Gráfico: Receita vs Lucro líquido por mês ----
-  el.classList.remove("oculto"); gVazio.classList.add("oculto");
+  // ---- Bateria de gráficos de gestão ----
   const grad = (base, topo) => new echarts.graphic.LinearGradient(0, 0, 0, 1, [
     { offset: 0, color: topo }, { offset: 1, color: base },
   ]);
-  const serieReceita = mesesPeriodo.map((am) => totalGrupoMes(grupos.find((g) => numGrupo(g) === 1) || "", am));
-  const serieLucro = mesesPeriodo.map((am) => totalAte(99, am));
   const rotuloK = (v) => v ? "R$ " + Math.round(v / 1000).toLocaleString("pt-BR") + "k" : "";
-  const g2 = grafico("grafico-financeiro");
-  g2.setOption({
-    animationDuration: 300,
-    grid: { left: 54, right: 14, top: 28, bottom: 30 },
-    tooltip: {
-      trigger: "axis", axisPointer: { type: "shadow" },
-      valueFormatter: (v) => fmtMoeda0(v || 0),
-      textStyle: { fontFamily: FONTE },
-    },
-    xAxis: EIXO_X(mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]), null),
-    yAxis: {
-      type: "value",
-      splitLine: { lineStyle: { color: "#EFE7DA" } },
-      axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
-    },
-    series: [
-      { name: "Receita", type: "bar", data: serieReceita,
-        itemStyle: { color: grad("#8B3C05", "#C9712E"), borderRadius: [4, 4, 0, 0] },
-        barGap: "10%", barCategoryGap: "30%",
-        label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
-                 color: "#000", fontSize: 11, fontWeight: "bold", fontFamily: FONTE } },
-      { name: "Lucro líquido", type: "bar", data: serieLucro,
-        itemStyle: { color: grad("#B8860B", "#D9B84A"), borderRadius: [4, 4, 0, 0] },
-        label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
-                 color: "#000", fontSize: 11, fontWeight: "bold", fontFamily: FONTE } },
-    ],
-  }, true);
-  g2.resize();
+  const rotulosMesCurto = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+  const EIXO_Y_MOEDA = {
+    type: "value",
+    splitLine: { lineStyle: { color: "#EFE7DA" } },
+    axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR },
+  };
+  const nomeCurto = (g) => g.replace(/^\d+\s*-?\s*/, "").trim();
+  const grupoPorNum = (n) => grupos.find((g) => numGrupo(g) === n) || "";
+  const totalGrupoPeriodo = (g) => mesesPeriodo.reduce((t, am) => t + totalGrupoMes(g, am), 0);
+
+  // --- 1. Cascata do resultado (período inteiro) ---
+  {
+    const NOMES = { 1: "Receita", 2: "Impostos", 3: "Custo merc.", 4: "Comercial",
+                    5: "Pessoal", 6: "Administrativa", 7: "Operacional",
+                    8: "Financeiro", 9: "Dividendos" };
+    const passos = [];
+    let acumulado = 0;
+    const passo = (nome, v, cor, subtotal) => passos.push({ nome, v, cor, subtotal });
+    for (const g of grupos) {
+      const n = numGrupo(g);
+      const v = totalGrupoPeriodo(g);
+      if (v !== 0) passo(NOMES[n] || nomeCurto(g), v, n === 1 ? "#8B3C05" : (v > 0 ? "#C9712E" : "#A89B89"), false);
+      if (n === 3) passo("MARGEM CONTRIB.", null, "#B8860B", true);
+      if (n === 7) passo("LUCRO OPERAC.", null, "#B8860B", true);
+    }
+    passo("LUCRO LÍQUIDO", null, "#6E4B2A", true);
+
+    const cats = [], base = [], valores = [], reais = [];
+    for (const p of passos) {
+      cats.push(p.nome);
+      if (p.subtotal) {
+        base.push(Math.min(acumulado, 0)); valores.push(Math.abs(acumulado)); reais.push(acumulado);
+      } else {
+        base.push(Math.min(acumulado, acumulado + p.v));
+        valores.push(Math.abs(p.v)); reais.push(p.v);
+        acumulado += p.v;
+      }
+    }
+    const g1 = grafico("grafico-cascata");
+    g1.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 28, bottom: 74 },
+      tooltip: {
+        trigger: "axis", axisPointer: { type: "shadow" },
+        formatter: (ps) => {
+          const i = ps[ps.length - 1].dataIndex;
+          return `${cats[i]}<br>${fmtMoeda0(reais[i])}`;
+        },
+        textStyle: { fontFamily: FONTE },
+      },
+      xAxis: { type: "category", data: cats,
+               axisLine: { lineStyle: { color: "#B9AD9E" } }, axisTick: { show: false },
+               axisLabel: { color: "#8A6A4A", fontWeight: 600, fontFamily: FONTE,
+                            rotate: 35, fontSize: 9, interval: 0, hideOverlap: false } },
+      yAxis: EIXO_Y_MOEDA,
+      series: [
+        { type: "bar", stack: "cascata", data: base, silent: true,
+          itemStyle: { color: "transparent" }, emphasis: { disabled: true },
+          tooltip: { show: false } },
+        { type: "bar", stack: "cascata", barCategoryGap: "35%",
+          data: valores.map((v, i) => ({
+            value: v,
+            itemStyle: { color: passos[i].cor, borderRadius: reais[i] >= 0 ? [4, 4, 0, 0] : [0, 0, 4, 4] },
+          })),
+          label: { show: true, position: "top",
+                   formatter: (p) => rotuloK(reais[p.dataIndex]),
+                   color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+      ],
+    }, true);
+    g1.resize();
+  }
+
+  // --- 2. Evolução das margens (%) ---
+  {
+    const pct = (num, den) => den > 0 ? +(num / den * 100).toFixed(1) : null;
+    const receitaMes = mesesPeriodo.map((am) => totalGrupoMes(grupoPorNum(1), am));
+    const series = [
+      ["Margem de contribuição", "#8B3C05", mesesPeriodo.map((am, i) => pct(totalAte(3, am), receitaMes[i]))],
+      ["Lucro operacional", "#B8860B", mesesPeriodo.map((am, i) => pct(totalAte(7, am), receitaMes[i]))],
+      ["Margem líquida", "#8A6A4A", mesesPeriodo.map((am, i) => pct(totalAte(99, am), receitaMes[i]))],
+    ];
+    const g2 = grafico("grafico-margens");
+    g2.setOption({
+      animationDuration: 300,
+      grid: { left: 44, right: 14, top: 20, bottom: 30 },
+      tooltip: { trigger: "axis", valueFormatter: (v) => v == null ? "—" : v.toLocaleString("pt-BR") + "%",
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulosMesCurto, null),
+      yAxis: { type: "value",
+               splitLine: { lineStyle: { color: "#EFE7DA" } },
+               axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: (v) => v + "%" } },
+      series: series.map(([nome, cor, dados2]) => ({
+        name: nome, type: "line", data: dados2, connectNulls: true,
+        lineStyle: { width: 2, color: cor }, itemStyle: { color: cor },
+        symbol: "circle", symbolSize: 7,
+      })),
+    }, true);
+    g2.resize();
+  }
+
+  // --- 4. Ponto de equilíbrio vs receita ---
+  {
+    const receitaMes = mesesPeriodo.map((am) => totalGrupoMes(grupoPorNum(1), am));
+    const peMes = mesesPeriodo.map((am, i) => {
+      const receita2 = receitaMes[i];
+      if (receita2 <= 0) return null;
+      const mcPct = totalAte(3, am) / receita2;           // margem de contribuição %
+      const fixos = Math.abs([4, 5, 6, 7].reduce((t, n) => t + totalGrupoMes(grupoPorNum(n), am), 0));
+      return mcPct > 0 ? +(fixos / mcPct).toFixed(0) : null;
+    });
+    const g3 = grafico("grafico-pe");
+    g3.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 28, bottom: 30 },
+      tooltip: { trigger: "axis", valueFormatter: (v) => v == null ? "—" : fmtMoeda0(v),
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulosMesCurto, null),
+      yAxis: EIXO_Y_MOEDA,
+      series: [
+        { name: "Receita recebida", type: "bar", data: receitaMes,
+          itemStyle: { color: grad("#8B3C05", "#C9712E"), borderRadius: [4, 4, 0, 0] },
+          barCategoryGap: "40%",
+          label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
+                   color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+        { name: "Ponto de equilíbrio", type: "line", data: peMes, connectNulls: true,
+          lineStyle: { width: 2, color: "#B8860B", type: "dashed" },
+          itemStyle: { color: "#B8860B" }, symbol: "diamond", symbolSize: 9 },
+      ],
+    }, true);
+    g3.resize();
+  }
+
+  // --- 3. Para onde vai o dinheiro (grupos de saída 2-7) ---
+  {
+    const gruposSaida = grupos.filter((g) => numGrupo(g) >= 2 && numGrupo(g) <= 7)
+      .sort((a, b) => Math.abs(totalGrupoPeriodo(b)) - Math.abs(totalGrupoPeriodo(a)));
+    const cores = {};
+    gruposSaida.forEach((g, i) => { cores[nomeCurto(g)] = PALETA_CLASSES[i % PALETA_CLASSES.length]; });
+    const totalSaidaMes = mesesPeriodo.map((am) =>
+      gruposSaida.reduce((t, g) => t + Math.abs(Math.min(totalGrupoMes(g, am), 0)), 0));
+    const limiar = Math.max(...totalSaidaMes, 0) * 0.05;
+    const g4 = grafico("grafico-saidas");
+    g4.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 16, bottom: 30 },
+      tooltip: { trigger: "item",
+                 formatter: (p) => `${p.name} — ${p.seriesName}<br>${fmtMoeda0(p.value)}`,
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulosMesCurto, null),
+      yAxis: EIXO_Y_MOEDA,
+      series: gruposSaida.map((g) => ({
+        name: nomeCurto(g), type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => Math.abs(Math.min(totalGrupoMes(g, am), 0))),
+        itemStyle: { color: cores[nomeCurto(g)] },
+        label: ROTULO_HALO(
+          (p) => p.value >= limiar ? Math.round(p.value).toLocaleString("pt-BR") : "", 9),
+      })),
+    }, true);
+    g4.resize();
+    pizza("pizza-saidas", "pizza-saidas-vazio",
+          gruposSaida.map((g) => ({ name: nomeCurto(g), value: Math.abs(totalGrupoPeriodo(g)) })),
+          cores);
+    legendaHTML("legenda-saidas", gruposSaida.map(nomeCurto), cores);
+  }
+
+  // --- Ranking: maiores despesas por classe ---
+  {
+    const porClasse = {};
+    for (const f of dados) {
+      if (f.valor < 0) porClasse[f.classe] = (porClasse[f.classe] || 0) + Math.abs(f.valor);
+    }
+    const top = Object.entries(porClasse).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const maximo = top.length ? top[0][1] : 1;
+    $("rank-despesas").innerHTML = "<h4>Maiores despesas do período</h4>" +
+      (top.length ? top.map(([nome, v], i) => `
+        <div class="cd-rank-row">
+          <div class="cd-rank-num">${i + 1}</div>
+          <div class="cd-rank-name" title="${escapaHTML(nome)}">${escapaHTML(nome)}</div>
+          <div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:${Math.round(v / maximo * 100)}%"></div></div>
+          <div class="cd-rank-value">R$ ${Math.round(v / 1000).toLocaleString("pt-BR")}k</div>
+        </div>`).join("")
+      : '<div class="grafico-vazio">Sem despesas no período.</div>');
+  }
+
+  // --- 5. Caixa: entradas vs saídas + saldo ---
+  {
+    const entradas = mesesPeriodo.map((am) => dados
+      .filter((f) => f.ano_mes === am && f.valor > 0).reduce((t, f) => t + f.valor, 0));
+    const saidas = mesesPeriodo.map((am) => dados
+      .filter((f) => f.ano_mes === am && f.valor < 0).reduce((t, f) => t + f.valor, 0));
+    const saldo = mesesPeriodo.map((am, i) => entradas[i] + saidas[i]);
+    const g5 = grafico("grafico-caixa");
+    g5.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 20, bottom: 30 },
+      tooltip: { trigger: "axis", valueFormatter: (v) => fmtMoeda0(v || 0),
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulosMesCurto, null),
+      yAxis: EIXO_Y_MOEDA,
+      series: [
+        { name: "Entradas", type: "bar", stack: "caixa", data: entradas,
+          itemStyle: { color: grad("#8B3C05", "#C9712E"), borderRadius: [4, 4, 0, 0] },
+          barCategoryGap: "40%" },
+        { name: "Saídas", type: "bar", stack: "caixa", data: saidas,
+          itemStyle: { color: "#A89B89", borderRadius: [0, 0, 4, 4] } },
+        { name: "Saldo do mês", type: "line", data: saldo,
+          lineStyle: { width: 2, color: "#B8860B" }, itemStyle: { color: "#B8860B" },
+          symbol: "circle", symbolSize: 7 },
+      ],
+    }, true);
+    g5.resize();
+  }
+
+  // --- 6. Recebido (caixa) vs vendido (aprovação) ---
+  {
+    const vendidoMes = mesesPeriodo.map((am) => REGISTROS
+      .filter((r) => r.tipo === "venda" && r.data_aprovacao &&
+                     r.data_aprovacao.slice(0, 7) === am)
+      .reduce((t, r) => t + (r.valor || 0), 0));
+    const recebidoMes = mesesPeriodo.map((am) => totalGrupoMes(grupoPorNum(1), am));
+    const g6 = grafico("grafico-recebido-vendido");
+    g6.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 28, bottom: 30 },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" },
+                 valueFormatter: (v) => fmtMoeda0(v || 0),
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulosMesCurto, null),
+      yAxis: EIXO_Y_MOEDA,
+      series: [
+        { name: "Vendido (aprovação)", type: "bar", data: vendidoMes,
+          itemStyle: { color: grad("#8B3C05", "#C9712E"), borderRadius: [4, 4, 0, 0] },
+          barGap: "10%", barCategoryGap: "30%",
+          label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
+                   color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+        { name: "Recebido (caixa)", type: "bar", data: recebidoMes,
+          itemStyle: { color: grad("#B8860B", "#D9B84A"), borderRadius: [4, 4, 0, 0] },
+          label: { show: true, position: "top", formatter: (p) => rotuloK(p.value),
+                   color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+      ],
+    }, true);
+    g6.resize();
+  }
 }
 
 // ---------------------------------------------------------------------------
