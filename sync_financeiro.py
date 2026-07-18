@@ -17,19 +17,32 @@ sys.path.insert(0, str(BASE / "skills"))
 
 from dotenv import load_dotenv  # noqa: E402
 
-from financeiro_erp import coletar_dre_lojas, LOJAS  # noqa: E402
-from storage_financeiro import sincronizar_financeiro  # noqa: E402
+from financeiro_erp import (  # noqa: E402
+    coletar_dre_lojas, coletar_financeiro_completo, LOJAS,
+)
+from storage_financeiro import (  # noqa: E402
+    sincronizar_financeiro, sincronizar_previsto,
+)
 
 
 def rodar_financeiro(ano: int, headless: bool = True) -> dict:
     load_dotenv(BASE / ".env")
-    print(f"=== Financeiro (DRE): coletando {ano} nas lojas {', '.join(LOJAS)} ===")
-    linhas = coletar_dre_lojas(
-        os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"),
-        ano, 1, ano, 12, headless=headless,
-    )
     meses = [f"{ano}-{m:02d}" for m in range(1, 13)]
-    resultado = sincronizar_financeiro(linhas, meses, list(LOJAS))
+    if ano == date.today().year:
+        # ano corrente: coleta tambem a previsao futura (recebiveis/fornecedores)
+        print(f"=== Financeiro (DRE + previsao): coletando {ano} ===")
+        linhas, previstas = coletar_financeiro_completo(
+            os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), ano, headless=headless,
+        )
+        resultado = sincronizar_financeiro(linhas, meses, list(LOJAS))
+        resultado.update(sincronizar_previsto(previstas))
+    else:
+        print(f"=== Financeiro (DRE): coletando {ano} nas lojas {', '.join(LOJAS)} ===")
+        linhas = coletar_dre_lojas(
+            os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"),
+            ano, 1, ano, 12, headless=headless,
+        )
+        resultado = sincronizar_financeiro(linhas, meses, list(LOJAS))
     print(f"Storage concluido: {resultado}")
     return resultado
 

@@ -74,17 +74,20 @@ def executar(dias: int = 7, headless: bool = True, notificar: bool = True) -> di
             log.exception("Falha na sincronizacao de produtos (vendas/orcamentos OK)")
 
         # Financeiro (DRE conf. pagamentos): recarrega o ano corrente nas duas
-        # lojas. Isolado: falha aqui nao derruba a sincronizacao principal.
+        # lojas + previsao futura (recebiveis e pagamentos a fornecedores, sem
+        # o filtro de liquidados). Isolado do sync principal.
         try:
-            from financeiro_erp import coletar_dre_lojas, LOJAS
-            from storage_financeiro import sincronizar_financeiro
-            linhas_fin = coletar_dre_lojas(
+            from financeiro_erp import coletar_financeiro_completo, LOJAS
+            from storage_financeiro import sincronizar_financeiro, sincronizar_previsto
+            linhas_fin, linhas_prev = coletar_financeiro_completo(
                 os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"),
-                hoje.year, 1, hoje.year, 12, headless=headless,
+                hoje.year, headless=headless,
             )
             meses_fin = [f"{hoje.year}-{m:02d}" for m in range(1, 13)]
             resultado.update(sincronizar_financeiro(linhas_fin, meses_fin, list(LOJAS)))
-            log.info("Financeiro sincronizado: %s linhas", resultado.get("linhas_financeiro"))
+            resultado.update(sincronizar_previsto(linhas_prev))
+            log.info("Financeiro sincronizado: %s linhas + %s previstas",
+                     resultado.get("linhas_financeiro"), resultado.get("linhas_previsto"))
         except Exception:
             log.exception("Falha na sincronizacao do financeiro (vendas/orcamentos OK)")
 

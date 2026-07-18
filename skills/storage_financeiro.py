@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS financeiro (
     UNIQUE (ano_mes, loja, grupo, classe)
 );
 ALTER TABLE financeiro ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS financeiro_previsto (
+    id SERIAL PRIMARY KEY,
+    ano_mes TEXT NOT NULL,
+    loja TEXT NOT NULL,
+    grupo TEXT NOT NULL,
+    classe TEXT NOT NULL,
+    valor REAL DEFAULT 0,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (ano_mes, loja, grupo, classe)
+);
+ALTER TABLE financeiro_previsto ENABLE ROW LEVEL SECURITY;
 """
 
 
@@ -60,3 +71,27 @@ def sincronizar_financeiro(linhas: list[dict], meses: list[str],
     finally:
         conn.close()
     return {"meses_financeiro": len(meses), "linhas_financeiro": len(linhas)}
+
+
+def sincronizar_previsto(linhas: list[dict]) -> dict:
+    """Substitui TODA a previsao futura pelos lancamentos recem-coletados —
+    a previsao muda a cada pagamento/recebimento, entao e sempre renovada."""
+    init_financeiro()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM financeiro_previsto")
+            for l in linhas:
+                cur.execute(
+                    """
+                    INSERT INTO financeiro_previsto (ano_mes, loja, grupo, classe, valor, atualizado_em)
+                    VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (ano_mes, loja, grupo, classe) DO UPDATE SET
+                        valor = excluded.valor, atualizado_em = CURRENT_TIMESTAMP
+                    """,
+                    (l["ano_mes"], l["loja"], l["grupo"], l["classe"], l["valor"]),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"linhas_previsto": len(linhas)}

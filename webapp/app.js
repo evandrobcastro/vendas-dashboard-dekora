@@ -71,6 +71,7 @@ let GC_ORDEM = [];
 let CORES_GC = {};
 let PRODUTOS_VISAO = "grandes"; // "grandes" | "detalhe"
 let FINANCEIRO = [];
+let PREVISTO = [];
 let LOJA_SEL = "CASA DEKORA";
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
@@ -187,6 +188,7 @@ async function carregarDados() {
     SYNC_LOG = d.sync_log ? paraObjetos(d.sync_log) : [];
     PRODUTOS = d.produtos ? paraObjetos(d.produtos) : [];
     FINANCEIRO = d.financeiro ? paraObjetos(d.financeiro) : [];
+    PREVISTO = d.financeiro_previsto ? paraObjetos(d.financeiro_previsto) : [];
 
     // Ordem/cor fixa das classes de produto, pelo total geral de vendas
     const totalPorClasse = {};
@@ -315,7 +317,13 @@ function montarFiltros() {
   const hoje = hojeISO();
   const inicioAno = hoje.slice(0, 4) + "-01-01";
   const datas = REGISTROS.map((r) => r.data_referencia).filter(Boolean).sort();
-  const dataMin = datas.length ? datas[0] : inicioAno;
+  let dataMin = datas.length ? datas[0] : inicioAno;
+  // historico de produtos/financeiro pode comecar antes dos registros
+  const mesesExtras = [...PRODUTOS.map((p) => p.ano_mes),
+                       ...FINANCEIRO.map((f) => f.ano_mes)].sort();
+  if (mesesExtras.length && mesesExtras[0] + "-01" < dataMin) {
+    dataMin = mesesExtras[0] + "-01";
+  }
 
   const fInicio = $("filtro-inicio"), fFim = $("filtro-fim");
   fInicio.min = dataMin; fInicio.max = hoje; fInicio.value = inicioAno;
@@ -1178,6 +1186,53 @@ function renderFinanceiro(mesesPeriodo) {
       ],
     }, true);
     g5.resize();
+  }
+
+  // --- Previsão de caixa: lançamentos futuros (independe do período) ---
+  {
+    const prev = PREVISTO.filter((f) => f.loja === LOJA_SEL);
+    const elP = $("grafico-previsao"), vzP = $("grafico-previsao-vazio");
+    const mesesPrev = [...new Set(prev.map((f) => f.ano_mes))].sort();
+    if (!mesesPrev.length) {
+      elP.classList.add("oculto"); vzP.classList.remove("oculto");
+      if (GRAFICOS["grafico-previsao"]) GRAFICOS["grafico-previsao"].clear();
+    } else {
+      elP.classList.remove("oculto"); vzP.classList.add("oculto");
+      const soma = (am, nGrupo, sinal) => prev
+        .filter((f) => f.ano_mes === am && numGrupo(f.grupo) === nGrupo)
+        .reduce((t, f) => t + (sinal > 0 ? Math.max(f.valor, 0) : Math.min(f.valor, 0)), 0);
+      const recebiveis = mesesPrev.map((am) => soma(am, 1, +1));
+      const pagamentos = mesesPrev.map((am) => soma(am, 3, -1));
+      const saldoPrev = mesesPrev.map((_, i) => recebiveis[i] + pagamentos[i]);
+      const rotulosPrev = mesesPrev.map(
+        (am) => MESES_PT[+am.slice(5, 7) - 1] + "/" + am.slice(2, 4));
+      const gP = grafico("grafico-previsao");
+      gP.setOption({
+        animationDuration: 300,
+        grid: { left: 54, right: 14, top: 20, bottom: 30 },
+        tooltip: { trigger: "axis", valueFormatter: (v) => fmtMoeda0(v || 0),
+                   textStyle: { fontFamily: FONTE } },
+        xAxis: EIXO_X(rotulosPrev, null),
+        yAxis: EIXO_Y_MOEDA,
+        series: [
+          { name: "Recebíveis previstos", type: "bar", stack: "prev", data: recebiveis,
+            itemStyle: { color: grad("#B8860B", "#D9B84A"), borderRadius: [4, 4, 0, 0] },
+            barCategoryGap: "40%",
+            label: { show: true, position: "top",
+                     formatter: (p) => Math.abs(p.value) >= 1000 ? rotuloK(p.value) : "",
+                     color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+          { name: "Pagamentos a fornecedores", type: "bar", stack: "prev", data: pagamentos,
+            itemStyle: { color: "#A89B89", borderRadius: [0, 0, 4, 4] },
+            label: { show: true, position: "bottom",
+                     formatter: (p) => Math.abs(p.value) >= 1000 ? rotuloK(p.value) : "",
+                     color: "#000", fontSize: 10, fontWeight: "bold", fontFamily: FONTE } },
+          { name: "Saldo previsto", type: "line", data: saldoPrev,
+            lineStyle: { width: 2, color: "#8B3C05" }, itemStyle: { color: "#8B3C05" },
+            symbol: "circle", symbolSize: 7 },
+        ],
+      }, true);
+      gP.resize();
+    }
   }
 
   // --- 6. Recebido (caixa) vs vendido (aprovação) ---

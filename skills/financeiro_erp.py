@@ -93,7 +93,9 @@ def parse_dre(html: str, loja: str) -> list[dict]:
 
 
 def coletar_dre(driver, loja: str, ano_ini: int, mes_ini: int,
-                ano_fim: int, mes_fim: int) -> list[dict]:
+                ano_fim: int, mes_fim: int, liquidados: bool = True) -> list[dict]:
+    """liquidados=True: apenas pagamentos/recebimentos ja realizados (caixa).
+    liquidados=False: inclui lancamentos agendados (recebiveis/contas a pagar)."""
     driver.get(URL_DRE)
     time.sleep(3)
     Select(driver.find_element(By.NAME, "mesInicio")).select_by_value(f"{mes_ini:02d}")
@@ -104,7 +106,7 @@ def coletar_dre(driver, loja: str, ano_ini: int, mes_ini: int,
     Select(driver.find_element(By.NAME, "select_forma_acompanhamento")) \
         .select_by_value(FORMA_ACOMPANHAMENTO)
     cb = driver.find_element(By.NAME, "checkbox_pagamentos_liquidados")
-    if not cb.is_selected():
+    if cb.is_selected() != liquidados:
         driver.execute_script("arguments[0].click();", cb)
     driver.find_element(By.CSS_SELECTOR, "input[value='Buscar']").click()
     time.sleep(12)
@@ -124,3 +126,43 @@ def coletar_dre_lojas(usuario: str, senha: str, ano_ini: int, mes_ini: int,
     finally:
         driver.quit()
     return linhas
+
+
+# Grupos considerados na previsao de caixa: 1 (vendas/recebiveis) e
+# 3 (custo mercadoria vendida = pagamentos a fornecedores) — escolha do usuario.
+GRUPOS_PREVISTO = (1, 3)
+
+
+def _num_grupo(g: str) -> int:
+    m = re.match(r"\s*(\d+)", g or "")
+    return int(m.group(1)) if m else 99
+
+
+def coletar_financeiro_completo(usuario: str, senha: str, ano: int,
+                                headless: bool = True) -> tuple[list[dict], list[dict]]:
+    """Numa unica sessao: (1) DRE realizado do ano (apenas liquidados) e
+    (2) previsao futura (sem o filtro de liquidados) do mes corrente ate
+    dez do ano seguinte, so recebiveis e pagamentos a fornecedores."""
+    from datetime import date
+    from pathlib import Path
+    driver = _build_driver(Path(__file__).parent.parent / "downloads", headless=headless)
+    realizado, previsto = [], []
+    try:
+        login(driver, usuario, senha)
+        hoje = date.today()
+        for loja in LOJAS:
+            realizado.extend(coletar_dre(driver, loja, ano, 1, ano, 12, liquidados=True))
+        mes_atual = f"{hoje.year}-{hoje.month:02d}"
+        for loja in LOJAS:
+            # o relatorio nao aceita intervalo cruzando anos: duas buscas
+            brutas = coletar_dre(driver, loja, hoje.year, hoje.month,
+                                 hoje.year, 12, liquidados=False)
+            brutas += coletar_dre(driver, loja, hoje.year + 1, 1,
+                                  hoje.year + 1, 12, liquidados=False)
+            previsto.extend(
+                l for l in brutas
+                if _num_grupo(l["grupo"]) in GRUPOS_PREVISTO and l["ano_mes"] >= mes_atual
+            )
+    finally:
+        driver.quit()
+    return realizado, previsto

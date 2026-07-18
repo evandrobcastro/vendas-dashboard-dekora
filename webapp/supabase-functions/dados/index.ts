@@ -87,6 +87,13 @@ Deno.serve(async (req: Request) => {
     } catch (_e) {
       // tabela financeiro ainda nao existe: segue sem ela
     }
+    let financeiroPrev: any[] = [];
+    try {
+      financeiroPrev = await sql`
+        select ano_mes, loja, grupo, classe, valor from financeiro_previsto`;
+    } catch (_e) {
+      // tabela financeiro_previsto ainda nao existe: segue sem ela
+    }
 
     return json({
       usuario,
@@ -111,6 +118,10 @@ Deno.serve(async (req: Request) => {
       financeiro: {
         columns: COLS_FINANCEIRO,
         rows: financeiro.map((r) => COLS_FINANCEIRO.map((c) => r[c] ?? null)),
+      },
+      financeiro_previsto: {
+        columns: COLS_FINANCEIRO,
+        rows: financeiroPrev.map((r) => COLS_FINANCEIRO.map((c) => r[c] ?? null)),
       },
     });
   } catch (e) {
