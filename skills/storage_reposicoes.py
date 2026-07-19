@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS reposicoes (
     id SERIAL PRIMARY KEY,
     os TEXT NOT NULL,
     ano_mes TEXT NOT NULL,
+    categoria TEXT,
     tipo TEXT,
     identificacao TEXT,
     cliente TEXT,
@@ -31,6 +32,8 @@ CREATE TABLE IF NOT EXISTS reposicoes (
     UNIQUE (os, ano_mes)
 );
 ALTER TABLE reposicoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reposicoes ADD COLUMN IF NOT EXISTS categoria TEXT;
+ALTER TABLE reposicoes ADD COLUMN IF NOT EXISTS responsavel TEXT;
 """
 
 
@@ -53,12 +56,14 @@ def sincronizar_reposicoes(linhas: list[dict], meses: list[str]) -> dict:
             for l in linhas:
                 cur.execute(
                     """
-                    INSERT INTO reposicoes (os, ano_mes, tipo, identificacao, cliente,
-                        cidade, bairro, data_cadastro, causadores, motivos, metragem,
-                        custo, horas, status, atualizado_em)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            CURRENT_TIMESTAMP)
+                    INSERT INTO reposicoes (os, ano_mes, categoria, responsavel, tipo,
+                        identificacao, cliente, cidade, bairro, data_cadastro,
+                        causadores, motivos, metragem, custo, horas, status,
+                        atualizado_em)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (os, ano_mes) DO UPDATE SET
+                        categoria = excluded.categoria, responsavel = excluded.responsavel,
                         tipo = excluded.tipo, identificacao = excluded.identificacao,
                         cliente = excluded.cliente, cidade = excluded.cidade,
                         bairro = excluded.bairro, data_cadastro = excluded.data_cadastro,
@@ -67,9 +72,10 @@ def sincronizar_reposicoes(linhas: list[dict], meses: list[str]) -> dict:
                         horas = excluded.horas, status = excluded.status,
                         atualizado_em = CURRENT_TIMESTAMP
                     """,
-                    (l["os"], l["ano_mes"], l["tipo"], l["identificacao"], l["cliente"],
-                     l["cidade"], l["bairro"], l["data_cadastro"], l["causadores"],
-                     l["motivos"], l["metragem"], l["custo"], l["horas"], l["status"]),
+                    (l["os"], l["ano_mes"], l.get("categoria"), l.get("responsavel"),
+                     l["tipo"], l["identificacao"], l["cliente"], l["cidade"],
+                     l["bairro"], l["data_cadastro"], l["causadores"], l["motivos"],
+                     l["metragem"], l["custo"], l["horas"], l["status"]),
                 )
         conn.commit()
     finally:

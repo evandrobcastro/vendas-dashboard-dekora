@@ -40,9 +40,9 @@ const COLS_PRODUTOS = ["ano_mes", "classe", "subclasse", "quantidade",
                        "m2_vidro", "m2_inst", "peso_perfil", "valor_venda",
                        "valor_custo", "lucro"];
 const COLS_FINANCEIRO = ["ano_mes", "loja", "grupo", "classe", "valor"];
-const COLS_REPOSICOES = ["os", "ano_mes", "tipo", "identificacao", "cliente",
-                         "cidade", "bairro", "data_cadastro", "causadores",
-                         "motivos", "metragem", "custo", "horas", "status"];
+const COLS_REPOSICOES = ["os", "ano_mes", "categoria", "responsavel", "tipo",
+                         "identificacao", "cliente", "cidade", "bairro", "data_cadastro",
+                         "causadores", "motivos", "metragem", "custo", "horas", "status"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -100,8 +100,9 @@ Deno.serve(async (req: Request) => {
     let reposicoes: any[] = [];
     try {
       reposicoes = await sql`
-        select os, ano_mes, tipo, identificacao, cliente, cidade, bairro,
-               data_cadastro, causadores, motivos, metragem, custo, horas, status
+        select os, ano_mes, categoria, responsavel, tipo, identificacao, cliente,
+               cidade, bairro, data_cadastro, causadores, motivos, metragem,
+               custo, horas, status
         from reposicoes`;
     } catch (_e) {
       // tabela reposicoes ainda nao existe: segue sem ela

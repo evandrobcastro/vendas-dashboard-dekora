@@ -76,16 +76,12 @@ let LOJA_SEL = "CASA DEKORA";
 let REPOSICOES = [];
 let REPO_DADOS = []; // OS do período atual (p/ paginação da tabela)
 const REPO_PAG = { pagina: 0 };
-// cores fixas por tipo de OS, em tons da marca
-const CORES_REPO = {
-  "MANUTENÇÃO - MONTADOR": "#8B3C05",
-  "MANUTENÇÃO - FORNECEDOR": "#C9712E",
-  "MANUTENÇÃO - PRODUÇÃO": "#8A6A4A",
-  "REPOSIÇÃO EMPRESA": "#B8860B",
-  "REPOSIÇÃO CLIENTE": "#6E4B2A",
-  "REPOSIÇÃO FORNECEDOR": "#D8CFC0",
-  "MANUTENÇÃO": "#B9AD9E",
-};
+// cores por categoria (Manutenção interna x Reposição = retrabalho com custo)
+const CORES_CATEGORIA = { "Manutenção": "#8B3C05", "Reposição": "#B8860B" };
+const ORDEM_CATEGORIA = ["Manutenção", "Reposição"];
+// responsável pela reposição (sufixo do código: RE/RC/RF)
+const CORES_RESPONSAVEL = { "Empresa": "#8B3C05", "Cliente": "#C9712E", "Fornecedor": "#8A6A4A" };
+const ORDEM_RESPONSAVEL = ["Empresa", "Cliente", "Fornecedor"];
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
 const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
@@ -1296,19 +1292,23 @@ function renderReposicoes(mesesPeriodo) {
   const dados = REPOSICOES.filter((r) => mesesPeriodo.includes(r.ano_mes));
   REPO_DADOS = dados;
 
-  // ---- KPIs ----
+  // ---- KPIs (manutenção + reposição compõem todos os números) ----
   const totalOS = dados.length;
+  const qtdManut = dados.filter((r) => r.categoria === "Manutenção").length;
+  const qtdRepos = dados.filter((r) => r.categoria === "Reposição").length;
   const horas = dados.reduce((t, r) => t + (r.horas || 0), 0);
-  const custo = dados.reduce((t, r) => t + (r.custo || 0), 0);
+  const custoRepos = dados.filter((r) => r.categoria === "Reposição")
+    .reduce((t, r) => t + (r.custo || 0), 0);
+  const custoTotal = dados.reduce((t, r) => t + (r.custo || 0), 0);
   const finalizadas = dados.filter((r) => /finaliz/i.test(r.status || "")).length;
   const pendentes = dados.filter((r) => /pendente/i.test(r.status || "")).length;
   const pctFin = totalOS ? Math.round(finalizadas / totalOS * 100) : 0;
 
   const caixas = [
-    ["Ordens de serviço", fmtInt(totalOS), `${mesesPeriodo.length} mes(es) no período`],
+    ["Ordens de serviço", fmtInt(totalOS), `${qtdManut} manut. + ${qtdRepos} reposições`],
+    ["Custo de reposição", fmtMoeda0(custoRepos), custoTotal > custoRepos ? `total c/ manut. ${fmtMoeda0(custoTotal)}` : "retrabalho no período"],
     ["Horas trabalhadas", fmtHoras(horas), totalOS ? `média de ${fmtHoras(horas / totalOS)}/OS` : ""],
-    ["% finalizadas", pctFin + "%", `${finalizadas} de ${totalOS} concluídas`],
-    ["OS pendentes", fmtInt(pendentes), custo > 0 ? `custo total ${fmtMoeda0(custo)}` : "aguardando conclusão"],
+    ["% finalizadas", pctFin + "%", `${pendentes} pendente(s) de ${totalOS}`],
   ];
   $("kpis-reposicoes").innerHTML = caixas.map(([rotulo, valor, sub]) => `
     <div class="kpi">
@@ -1317,20 +1317,13 @@ function renderReposicoes(mesesPeriodo) {
       <div class="cd-delta cd-delta-neutro">${escapaHTML(sub)}</div>
     </div>`).join("");
 
-  // ---- Tipos presentes (ordem fixa pela cor conhecida, extras ao fim) ----
-  const tiposPresentes = [...new Set(dados.map((r) => r.tipo).filter(Boolean))];
-  const ordemTipos = Object.keys(CORES_REPO).filter((t) => tiposPresentes.includes(t))
-    .concat(tiposPresentes.filter((t) => !(t in CORES_REPO)));
-  const corTipo = (t) => CORES_REPO[t] || PALETA_CLASSES[ordemTipos.indexOf(t) % PALETA_CLASSES.length];
-  const coresTipo = {};
-  ordemTipos.forEach((t) => { coresTipo[t] = corTipo(t); });
-
-  // ---- Evolução mensal empilhada por tipo ----
+  // ---- Evolução mensal empilhada por categoria (Manutenção x Reposição) ----
+  const cats = ORDEM_CATEGORIA.filter((c) => dados.some((r) => r.categoria === c));
   const el = $("grafico-repo-mes"), vazio = $("grafico-repo-mes-vazio");
   const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
-  const porMesTipo = {};
+  const porMesCat = {};
   for (const r of dados) {
-    (porMesTipo[r.ano_mes] ??= {})[r.tipo] = (porMesTipo[r.ano_mes]?.[r.tipo] || 0) + 1;
+    (porMesCat[r.ano_mes] ??= {})[r.categoria] = (porMesCat[r.ano_mes]?.[r.categoria] || 0) + 1;
   }
   if (!totalOS) {
     el.classList.add("oculto"); vazio.classList.remove("oculto");
@@ -1348,22 +1341,22 @@ function renderReposicoes(mesesPeriodo) {
       yAxis: { type: "value", minInterval: 1,
                splitLine: { lineStyle: { color: "#EFE7DA" } },
                axisLabel: { color: "#8A6A4A", fontFamily: FONTE } },
-      series: ordemTipos.map((tipo) => ({
-        name: tipo, type: "bar", stack: "total", barCategoryGap: "35%",
-        data: mesesPeriodo.map((am) => porMesTipo[am]?.[tipo] || 0),
-        itemStyle: { color: coresTipo[tipo] },
+      series: cats.map((cat) => ({
+        name: cat, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => porMesCat[am]?.[cat] || 0),
+        itemStyle: { color: CORES_CATEGORIA[cat] },
         label: ROTULO_HALO((p) => p.value > 0 ? p.value : "", 10),
       })),
     }, true);
     g.resize();
   }
 
-  // ---- Mix por tipo (pizza) + legenda ----
-  const totalPorTipo = {};
-  for (const r of dados) totalPorTipo[r.tipo] = (totalPorTipo[r.tipo] || 0) + 1;
+  // ---- Mix por categoria (pizza) + legenda ----
+  const totalPorCat = {};
+  for (const r of dados) totalPorCat[r.categoria] = (totalPorCat[r.categoria] || 0) + 1;
   pizza("pizza-repo", "pizza-repo-vazio",
-        ordemTipos.map((t) => ({ name: t, value: totalPorTipo[t] || 0 })), coresTipo);
-  legendaHTML("legenda-repo", ordemTipos, coresTipo);
+        cats.map((c) => ({ name: c, value: totalPorCat[c] || 0 })), CORES_CATEGORIA);
+  legendaHTML("legenda-repo", cats, CORES_CATEGORIA);
 
   // ---- Rankings (contagem e custo) por motivo e causador ----
   const agrega = (campo) => {
@@ -1400,11 +1393,55 @@ function renderReposicoes(mesesPeriodo) {
   $("rank-custo-causador").innerHTML = rankHTML("Custo por causador",
     Object.entries(causadores.cst), fmtMoeda0, "Sem custo registrado no período.");
 
+  // ---- Reposição por responsável (Empresa/Cliente/Fornecedor) ----
+  const reps = dados.filter((r) => r.categoria === "Reposição");
+  const respPresentes = ORDEM_RESPONSAVEL.filter((x) => reps.some((r) => r.responsavel === x))
+    .concat([...new Set(reps.map((r) => r.responsavel).filter((x) => x && !ORDEM_RESPONSAVEL.includes(x)))]);
+  const elR = $("grafico-responsavel"), vzR = $("grafico-responsavel-vazio");
+  if (!reps.length) {
+    elR.classList.add("oculto"); vzR.classList.remove("oculto");
+    if (GRAFICOS["grafico-responsavel"]) GRAFICOS["grafico-responsavel"].clear();
+    pizza("pizza-responsavel", "pizza-responsavel-vazio", [], CORES_RESPONSAVEL);
+    $("legenda-responsavel").innerHTML = "";
+  } else {
+    elR.classList.remove("oculto"); vzR.classList.add("oculto");
+    const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+    const custoMesResp = {};
+    for (const r of reps) {
+      (custoMesResp[r.responsavel] ??= {})[r.ano_mes] =
+        (custoMesResp[r.responsavel]?.[r.ano_mes] || 0) + (r.custo || 0);
+    }
+    const gR = grafico("grafico-responsavel");
+    gR.setOption({
+      animationDuration: 300,
+      grid: { left: 54, right: 14, top: 16, bottom: 30 },
+      tooltip: { trigger: "item",
+                 formatter: (p) => `${p.name} — ${p.seriesName}<br>${fmtMoeda0(p.value)}`,
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulos, null),
+      yAxis: { type: "value", splitLine: { lineStyle: { color: "#EFE7DA" } },
+               axisLabel: { color: "#8A6A4A", fontFamily: FONTE, formatter: compactoBR } },
+      series: respPresentes.map((resp) => ({
+        name: resp, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => custoMesResp[resp]?.[am] || 0),
+        itemStyle: { color: CORES_RESPONSAVEL[resp] || "#B9AD9E" },
+      })),
+    }, true);
+    gR.resize();
+
+    const osPorResp = {};
+    for (const r of reps) osPorResp[r.responsavel] = (osPorResp[r.responsavel] || 0) + 1;
+    pizza("pizza-responsavel", "pizza-responsavel-vazio",
+          respPresentes.map((x) => ({ name: x, value: osPorResp[x] || 0 })), CORES_RESPONSAVEL);
+    legendaHTML("legenda-responsavel", respPresentes, CORES_RESPONSAVEL);
+  }
+
   renderTabelaRepo(dados);
 }
 
 const COLS_REPO_TABELA = [
-  ["os", "OS"], ["tipo", "Tipo"], ["identificacao", "Identificação"],
+  ["os", "OS"], ["categoria", "Categoria"], ["responsavel", "Responsável"],
+  ["tipo", "Tipo/Motivo"], ["identificacao", "Identificação"],
   ["cliente", "Cliente"], ["cidade", "Cidade"], ["data_cadastro", "Cadastro", (v) => fmtData(v)],
   ["causadores", "Causador(es)", (v) => _tagsRepo(v).join(", ")],
   ["motivos", "Motivos", (v) => _tagsRepo(v).join(", ")],

@@ -9,17 +9,25 @@ enviada pelo usuario:
   - Resp. reposicao e Motivo = "tudo selecionado" (marca todos os checkboxes
     dos widgets select_tipo_reposicao[] e select_motivo_filtro[])
 
-Estrutura do resultado (por secao/tipo de OS):
+Estrutura do resultado (por secao):
   <div class="mt-4 mb-1"><b>SECAO</b></div> seguido de uma <table>.
-  Secoes possiveis: MANUTENCAO - MONTADOR, MANUTENCAO - FORNECEDOR,
-  REPOSICAO EMPRESA, REPOSICAO CLIENTE, REPOSICAO FORNECEDOR, MANUTENCAO.
-  Cada linha de OS tem celulas identificadas por title:
-    Identificacao da O.S., Fantasia (cliente), Cidade, Bairro, Data,
-    Causador(es) (varios separados por <br>), Motivos (varios <span>),
-    Metragem, Custo produtos X + servicos Y, Horas trabalhadas, Status.
+  Ha DOIS tipos de bloco:
+  1. MANUTENCAO (montador/fornecedor/producao): tem coluna "Motivos"; a
+     categoria e "Manutencao"; codigo da OS termina em "MANU".
+  2. REPOSICAO: as OS de reposicao vem agrupadas pelo MOTIVO, que e o
+     proprio titulo do bloco (ERRO MEDICAO, ERRO PROJETO, FABRICACAO,
+     QUEBRA, RISCO/FALHAS ...). NAO tem coluna "Motivos" (o motivo e a
+     secao). Codigo da OS tem outro formato (ex.: "3203/25-2RE").
+  Blocos "REPOSICAO EMPRESA/CLIENTE/FORNECEDOR" e "RESUMO DE CUSTO..." podem
+  aparecer vazios/de resumo e sao ignorados (nao tem linhas de OS).
 
-Granularidade gravada: uma linha por OS. Motivos e causadores ficam como
-texto separado por '|' (o dashboard divide para os rankings).
+  Cada linha de OS tem celulas identificadas por title: Identificacao da
+  O.S., Fantasia (cliente), Cidade, Bairro, Data, Causador(es), Metragem,
+  Custo produtos X + servicos Y, Horas trabalhadas, Status (+ Motivos nos
+  blocos de manutencao).
+
+Granularidade gravada: uma linha por OS, com categoria (Manutencao/
+Reposicao), tipo (nome da secao) e motivos separados por '|'.
 """
 import calendar
 import re
@@ -33,7 +41,18 @@ from download_erp import _build_driver, login, _set_text_field
 
 URL_REPO = "https://ecgsistemas.com/ecg_glass/ordemServico/relatorios/rel_reposicao.php"
 
-_OS_RE = re.compile(r"^\d+(MANU|REPO)")
+# titulos de bloco que sao resumo/agrupamento sem linhas de OS proprias
+_BLOCOS_IGNORAR = ("RESUMO DE CUSTO",)
+
+# o sufixo do codigo da OS de reposicao diz QUEM causou/paga (info do usuario):
+#   RE = Reposicao Empresa (causada internamente), RC = Reposicao Cliente
+#   (gerada pelo cliente), RF = Reposicao Fornecedor (falha de fornecedor).
+_RESPONSAVEL = {"RE": "Empresa", "RC": "Cliente", "RF": "Fornecedor"}
+
+
+def _responsavel(os_cod: str) -> str:
+    m = re.search(r"(R[ECF])\s*$", (os_cod or "").upper())
+    return _RESPONSAVEL.get(m.group(1), "") if m else ""
 
 
 def _num_br(texto: str) -> float:
@@ -61,31 +80,38 @@ def parse_reposicoes(html: str) -> list[dict]:
         if not b:
             continue
         secao = b.get_text(strip=True)
+        if any(secao.upper().startswith(x) for x in _BLOCOS_IGNORAR):
+            continue
+        # blocos que comecam com MANUTEN sao manutencoes; os demais que tem
+        # linhas de OS (ERRO MEDICAO, FABRICACAO, QUEBRA...) sao reposicoes,
+        # e o motivo da reposicao e o proprio titulo do bloco.
+        categoria = "Manutenção" if secao.upper().startswith("MANUTEN") else "Reposição"
         tabela = div.find_next("table")
         if not tabela:
             continue
         for tr in tabela.find_all("tr"):
+            # linha de OS = tem a celula "Identificação da O.S." (o cabecalho nao tem)
+            cel = {td.get("title"): td for td in tr.find_all("td") if td.get("title")}
+            if "Identificação da O.S." not in cel:
+                continue
             tds = tr.find_all("td")
-            if not tds:
-                continue
             os_cod = tds[0].get_text(strip=True)
-            if not _OS_RE.match(os_cod):
-                continue
-            cel = {td.get("title"): td for td in tds if td.get("title")}
 
             def txt(titulo):
                 td = cel.get(titulo)
                 return td.get_text(strip=True) if td else ""
 
-            # motivos: um <span> por motivo; causadores: separados por <br>
+            # motivos: manutencao usa a coluna "Motivos" (um <span> por motivo);
+            # reposicao nao tem essa coluna -> motivo = nome da secao.
             td_mot = cel.get("Motivos")
-            motivos = "|".join(
-                s.get_text(strip=True) for s in td_mot.find_all("span")
-            ) if td_mot else txt("Motivos")
+            if td_mot:
+                motivos = "|".join(s.get_text(strip=True) for s in td_mot.find_all("span")) \
+                          or td_mot.get_text(strip=True)
+            else:
+                motivos = secao
             td_cau = cel.get("Causador(es)")
             causadores = td_cau.get_text("|", strip=True) if td_cau else ""
 
-            # custo = produtos + servicos (o title traz os dois valores)
             td_custo = next((td for t, td in cel.items()
                              if t and t.startswith("Custo")), None)
             custo = _num_br(td_custo.get_text(strip=True)) if td_custo else 0.0
@@ -93,6 +119,8 @@ def parse_reposicoes(html: str) -> list[dict]:
             data_iso, ano_mes = _data_iso(txt("Data"))
             linhas.append({
                 "os": os_cod,
+                "categoria": categoria,
+                "responsavel": _responsavel(os_cod) if categoria == "Reposição" else "",
                 "tipo": secao,
                 "identificacao": txt("Identificação da O.S."),
                 "cliente": txt("Fantasia"),

@@ -329,14 +329,14 @@
           <section>
             <div class="linha-graficos">
               <div class="cd-card g70">
-                <h4>OS por mês e tipo</h4>
+                <h4>OS por mês e categoria</h4>
                 <div id="grafico-repo-mes" class="grafico grafico-alto"></div>
                 <div id="grafico-repo-mes-vazio" class="grafico-vazio oculto">
                   Sem OS no período selecionado.
                 </div>
               </div>
               <div class="cd-card g30">
-                <h4>Mix por tipo</h4>
+                <h4>Manutenção × Reposição</h4>
                 <div id="pizza-repo" class="grafico grafico-alto"></div>
                 <div id="pizza-repo-vazio" class="grafico-vazio oculto">Sem dados.</div>
               </div>
@@ -354,6 +354,25 @@
           <section class="duas-colunas">
             <div class="cd-card" id="rank-custo-motivo"></div>
             <div class="cd-card" id="rank-custo-causador"></div>
+          </section>
+
+          <!-- Reposição por responsável (quem arca com o retrabalho) -->
+          <section>
+            <div class="linha-graficos">
+              <div class="cd-card g70">
+                <h4>Custo de reposição por responsável</h4>
+                <div id="grafico-responsavel" class="grafico"></div>
+                <div id="grafico-responsavel-vazio" class="grafico-vazio oculto">
+                  Sem reposições no período selecionado.
+                </div>
+              </div>
+              <div class="cd-card g30">
+                <h4>OS de reposição por responsável</h4>
+                <div id="pizza-responsavel" class="grafico"></div>
+                <div id="pizza-responsavel-vazio" class="grafico-vazio oculto">Sem dados.</div>
+              </div>
+            </div>
+            <div id="legenda-responsavel" class="cd-chart-legend legenda-bloco"></div>
           </section>
 
           <!-- Tabela detalhada -->
