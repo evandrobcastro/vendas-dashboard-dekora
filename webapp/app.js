@@ -73,6 +73,18 @@ let PRODUTOS_VISAO = "grandes"; // "grandes" | "detalhe"
 let FINANCEIRO = [];
 let PREVISTO = [];
 let LOJA_SEL = "CASA DEKORA";
+let REPOSICOES = [];
+let REPO_DADOS = []; // OS do período atual (p/ paginação da tabela)
+const REPO_PAG = { pagina: 0 };
+// cores fixas por tipo de OS, em tons da marca
+const CORES_REPO = {
+  "MANUTENÇÃO - MONTADOR": "#8B3C05",
+  "MANUTENÇÃO - FORNECEDOR": "#C9712E",
+  "REPOSIÇÃO EMPRESA": "#8A6A4A",
+  "REPOSIÇÃO CLIENTE": "#B8860B",
+  "REPOSIÇÃO FORNECEDOR": "#6E4B2A",
+  "MANUTENÇÃO": "#B9AD9E",
+};
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
 let ULTIMO_FILTRADO = []; // linhas da aba Tabela (recalculadas a cada filtro)
 const TABELA = { pagina: 0, ordenarPor: "data_referencia", asc: false };
@@ -189,6 +201,7 @@ async function carregarDados() {
     PRODUTOS = d.produtos ? paraObjetos(d.produtos) : [];
     FINANCEIRO = d.financeiro ? paraObjetos(d.financeiro) : [];
     PREVISTO = d.financeiro_previsto ? paraObjetos(d.financeiro_previsto) : [];
+    REPOSICOES = d.reposicoes ? paraObjetos(d.reposicoes) : [];
 
     // Ordem/cor fixa das classes de produto, pelo total geral de vendas
     const totalPorClasse = {};
@@ -320,7 +333,8 @@ function montarFiltros() {
   let dataMin = datas.length ? datas[0] : inicioAno;
   // historico de produtos/financeiro pode comecar antes dos registros
   const mesesExtras = [...PRODUTOS.map((p) => p.ano_mes),
-                       ...FINANCEIRO.map((f) => f.ano_mes)].sort();
+                       ...FINANCEIRO.map((f) => f.ano_mes),
+                       ...REPOSICOES.map((r) => r.ano_mes)].filter(Boolean).sort();
   if (mesesExtras.length && mesesExtras[0] + "-01" < dataMin) {
     dataMin = mesesExtras[0] + "-01";
   }
@@ -1268,6 +1282,160 @@ function renderFinanceiro(mesesPeriodo) {
 }
 
 // ---------------------------------------------------------------------------
+// Aba Reposições: KPIs, evolução por tipo, motivos, causadores, custos, tabela
+// ---------------------------------------------------------------------------
+const fmtHoras = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + " h";
+
+// separa um campo "A|B|C" em tags limpas
+function _tagsRepo(texto) {
+  return (texto || "").split("|").map((t) => t.trim()).filter(Boolean);
+}
+
+function renderReposicoes(mesesPeriodo) {
+  const dados = REPOSICOES.filter((r) => mesesPeriodo.includes(r.ano_mes));
+  REPO_DADOS = dados;
+
+  // ---- KPIs ----
+  const totalOS = dados.length;
+  const horas = dados.reduce((t, r) => t + (r.horas || 0), 0);
+  const custo = dados.reduce((t, r) => t + (r.custo || 0), 0);
+  const finalizadas = dados.filter((r) => /finaliz/i.test(r.status || "")).length;
+  const pendentes = dados.filter((r) => /pendente/i.test(r.status || "")).length;
+  const pctFin = totalOS ? Math.round(finalizadas / totalOS * 100) : 0;
+
+  const caixas = [
+    ["Ordens de serviço", fmtInt(totalOS), `${mesesPeriodo.length} mes(es) no período`],
+    ["Horas trabalhadas", fmtHoras(horas), totalOS ? `média de ${fmtHoras(horas / totalOS)}/OS` : ""],
+    ["% finalizadas", pctFin + "%", `${finalizadas} de ${totalOS} concluídas`],
+    ["OS pendentes", fmtInt(pendentes), custo > 0 ? `custo total ${fmtMoeda0(custo)}` : "aguardando conclusão"],
+  ];
+  $("kpis-reposicoes").innerHTML = caixas.map(([rotulo, valor, sub]) => `
+    <div class="kpi">
+      <div class="kpi-label">${rotulo}</div>
+      <div class="kpi-valor">${valor}</div>
+      <div class="cd-delta cd-delta-neutro">${escapaHTML(sub)}</div>
+    </div>`).join("");
+
+  // ---- Tipos presentes (ordem fixa pela cor conhecida, extras ao fim) ----
+  const tiposPresentes = [...new Set(dados.map((r) => r.tipo).filter(Boolean))];
+  const ordemTipos = Object.keys(CORES_REPO).filter((t) => tiposPresentes.includes(t))
+    .concat(tiposPresentes.filter((t) => !(t in CORES_REPO)));
+  const corTipo = (t) => CORES_REPO[t] || PALETA_CLASSES[ordemTipos.indexOf(t) % PALETA_CLASSES.length];
+  const coresTipo = {};
+  ordemTipos.forEach((t) => { coresTipo[t] = corTipo(t); });
+
+  // ---- Evolução mensal empilhada por tipo ----
+  const el = $("grafico-repo-mes"), vazio = $("grafico-repo-mes-vazio");
+  const rotulos = mesesPeriodo.map((am) => MESES_PT[+am.slice(5, 7) - 1]);
+  const porMesTipo = {};
+  for (const r of dados) {
+    (porMesTipo[r.ano_mes] ??= {})[r.tipo] = (porMesTipo[r.ano_mes]?.[r.tipo] || 0) + 1;
+  }
+  if (!totalOS) {
+    el.classList.add("oculto"); vazio.classList.remove("oculto");
+    if (GRAFICOS["grafico-repo-mes"]) GRAFICOS["grafico-repo-mes"].clear();
+  } else {
+    el.classList.remove("oculto"); vazio.classList.add("oculto");
+    const g = grafico("grafico-repo-mes");
+    g.setOption({
+      animationDuration: 300,
+      grid: { left: 44, right: 14, top: 16, bottom: 30 },
+      tooltip: { trigger: "item",
+                 formatter: (p) => `${p.name} — ${p.seriesName}<br>${p.value} OS`,
+                 textStyle: { fontFamily: FONTE } },
+      xAxis: EIXO_X(rotulos, null),
+      yAxis: { type: "value", minInterval: 1,
+               splitLine: { lineStyle: { color: "#EFE7DA" } },
+               axisLabel: { color: "#8A6A4A", fontFamily: FONTE } },
+      series: ordemTipos.map((tipo) => ({
+        name: tipo, type: "bar", stack: "total", barCategoryGap: "35%",
+        data: mesesPeriodo.map((am) => porMesTipo[am]?.[tipo] || 0),
+        itemStyle: { color: coresTipo[tipo] },
+        label: ROTULO_HALO((p) => p.value > 0 ? p.value : "", 10),
+      })),
+    }, true);
+    g.resize();
+  }
+
+  // ---- Mix por tipo (pizza) + legenda ----
+  const totalPorTipo = {};
+  for (const r of dados) totalPorTipo[r.tipo] = (totalPorTipo[r.tipo] || 0) + 1;
+  pizza("pizza-repo", "pizza-repo-vazio",
+        ordemTipos.map((t) => ({ name: t, value: totalPorTipo[t] || 0 })), coresTipo);
+  legendaHTML("legenda-repo", ordemTipos, coresTipo);
+
+  // ---- Rankings (contagem e custo) por motivo e causador ----
+  const agrega = (campo) => {
+    const cont = {}, cst = {};
+    for (const r of dados) {
+      for (const tag of _tagsRepo(r[campo])) {
+        cont[tag] = (cont[tag] || 0) + 1;
+        cst[tag] = (cst[tag] || 0) + (r.custo || 0);
+      }
+    }
+    return { cont, cst };
+  };
+  const motivos = agrega("motivos");
+  const causadores = agrega("causadores");
+
+  const rankHTML = (titulo, entradas, fmt, vazioTxt) => {
+    const top = entradas.sort((a, b) => b[1] - a[1]).slice(0, 6).filter(([, v]) => v > 0);
+    if (!top.length) return `<h4>${titulo}</h4><div class="grafico-vazio">${vazioTxt}</div>`;
+    const maximo = top[0][1] || 1;
+    return `<h4>${titulo}</h4>` + top.map(([nome, v], i) => `
+      <div class="cd-rank-row">
+        <div class="cd-rank-num">${i + 1}</div>
+        <div class="cd-rank-name" title="${escapaHTML(nome)}">${escapaHTML(nome)}</div>
+        <div class="cd-rank-bar-bg"><div class="cd-rank-bar-fill" style="width:${Math.round(v / maximo * 100)}%"></div></div>
+        <div class="cd-rank-value">${fmt(v)}</div>
+      </div>`).join("");
+  };
+  $("rank-motivos").innerHTML = rankHTML("Motivos mais frequentes",
+    Object.entries(motivos.cont), fmtInt, "Sem motivos no período.");
+  $("rank-causadores").innerHTML = rankHTML("Causadores mais frequentes",
+    Object.entries(causadores.cont), fmtInt, "Sem causadores identificados.");
+  $("rank-custo-motivo").innerHTML = rankHTML("Custo por motivo",
+    Object.entries(motivos.cst), fmtMoeda0, "Sem custo registrado no período.");
+  $("rank-custo-causador").innerHTML = rankHTML("Custo por causador",
+    Object.entries(causadores.cst), fmtMoeda0, "Sem custo registrado no período.");
+
+  renderTabelaRepo(dados);
+}
+
+const COLS_REPO_TABELA = [
+  ["os", "OS"], ["tipo", "Tipo"], ["identificacao", "Identificação"],
+  ["cliente", "Cliente"], ["cidade", "Cidade"], ["data_cadastro", "Cadastro", (v) => fmtData(v)],
+  ["causadores", "Causador(es)", (v) => _tagsRepo(v).join(", ")],
+  ["motivos", "Motivos", (v) => _tagsRepo(v).join(", ")],
+  ["horas", "Horas", (v) => (v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 }), true],
+  ["custo", "Custo (R$)", (v) => v ? fmtMoeda2(v) : "", true],
+  ["status", "Status"],
+];
+
+function renderTabelaRepo(dados) {
+  const linhas = [...dados].sort((a, b) =>
+    (b.data_cadastro || "").localeCompare(a.data_cadastro || ""));
+  const total = linhas.length;
+  const paginas = Math.max(Math.ceil(total / LINHAS_POR_PAGINA), 1);
+  REPO_PAG.pagina = Math.min(REPO_PAG.pagina, paginas - 1);
+  const ini = REPO_PAG.pagina * LINHAS_POR_PAGINA;
+  const visiveis = linhas.slice(ini, ini + LINHAS_POR_PAGINA);
+
+  const ths = COLS_REPO_TABELA.map(([, r]) => `<th>${r}</th>`).join("");
+  const trs = visiveis.map((r) => "<tr>" + COLS_REPO_TABELA.map(([c, , fmt, num]) => {
+    const bruto = r[c];
+    const txt = fmt ? fmt(bruto) : escapaHTML(bruto ?? "");
+    return `<td${num ? ' class="num"' : ""}>${txt}</td>`;
+  }).join("") + "</tr>").join("");
+  $("tabela-repo").innerHTML = `<thead><tr>${ths}</tr></thead><tbody>${trs}</tbody>`;
+  $("repo-info").textContent =
+    total ? `${ini + 1}–${Math.min(ini + LINHAS_POR_PAGINA, total)} de ${total.toLocaleString("pt-BR")} OS`
+          : "Nenhuma OS no período";
+  $("repo-ant").disabled = REPO_PAG.pagina === 0;
+  $("repo-prox").disabled = REPO_PAG.pagina >= paginas - 1;
+}
+
+// ---------------------------------------------------------------------------
 // Aba Tabela: registros filtrados, com ordenação e paginação
 // ---------------------------------------------------------------------------
 const fmtData = (iso) => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : "";
@@ -1614,6 +1782,8 @@ document.querySelectorAll(".cd-tabs .tab").forEach((btn) => {
 });
 $("tab-ant").addEventListener("click", () => { TABELA.pagina--; renderTabela(); });
 $("tab-prox").addEventListener("click", () => { TABELA.pagina++; renderTabela(); });
+$("repo-ant").addEventListener("click", () => { REPO_PAG.pagina--; renderTabelaRepo(REPO_DADOS); });
+$("repo-prox").addEventListener("click", () => { REPO_PAG.pagina++; renderTabelaRepo(REPO_DADOS); });
 
 // Visão da aba Produtos: grandes classes x detalhado
 function mudarVisaoProdutos(visao) {
@@ -1653,6 +1823,7 @@ function renderizar() {
   renderComissionado(filtrado, mesesPeriodo);
   renderProdutos(mesesPeriodo);
   renderFinanceiro(mesesPeriodo);
+  renderReposicoes(mesesPeriodo);
   renderTabela();
 }
 

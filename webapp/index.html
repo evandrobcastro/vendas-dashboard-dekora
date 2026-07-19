@@ -91,6 +91,7 @@
           <button class="tab ativa" data-aba="aba-comercial">Comercial</button>
           <button class="tab" data-aba="aba-produtos">Produtos</button>
           <button class="tab" data-aba="aba-financeiro">Financeiro</button>
+          <button class="tab" data-aba="aba-reposicoes">Reposições</button>
           <button class="tab" data-aba="aba-tabela">Tabela</button>
           <button class="tab" data-aba="aba-metas">Metas</button>
           <button class="tab" data-aba="aba-log">Log de sincronização</button>
@@ -313,6 +314,60 @@
               </div>
             </section>
           </div>
+        </div>
+
+        <!-- ================= ABA REPOSIÇÕES ================= -->
+        <div id="aba-reposicoes" class="aba-conteudo oculto">
+          <p class="cd-nota">
+            Ordens de serviço de reposição e manutenção (data de cadastro).
+            Usa o filtro de período; os demais filtros da barra lateral não se aplicam aqui.
+          </p>
+
+          <section id="kpis-reposicoes" class="kpi-grid"></section>
+
+          <!-- Evolução mensal por tipo (70%) + mix (30%) -->
+          <section>
+            <div class="linha-graficos">
+              <div class="cd-card g70">
+                <h4>OS por mês e tipo</h4>
+                <div id="grafico-repo-mes" class="grafico grafico-alto"></div>
+                <div id="grafico-repo-mes-vazio" class="grafico-vazio oculto">
+                  Sem OS no período selecionado.
+                </div>
+              </div>
+              <div class="cd-card g30">
+                <h4>Mix por tipo</h4>
+                <div id="pizza-repo" class="grafico grafico-alto"></div>
+                <div id="pizza-repo-vazio" class="grafico-vazio oculto">Sem dados.</div>
+              </div>
+            </div>
+            <div id="legenda-repo" class="cd-chart-legend legenda-bloco"></div>
+          </section>
+
+          <!-- Rankings de motivos e causadores -->
+          <section class="duas-colunas">
+            <div class="cd-card" id="rank-motivos"></div>
+            <div class="cd-card" id="rank-causadores"></div>
+          </section>
+
+          <!-- Custos por motivo e por causador -->
+          <section class="duas-colunas">
+            <div class="cd-card" id="rank-custo-motivo"></div>
+            <div class="cd-card" id="rank-custo-causador"></div>
+          </section>
+
+          <!-- Tabela detalhada -->
+          <section class="cd-card">
+            <h4>Ordens de serviço no período</h4>
+            <div class="tabela-scroll">
+              <table class="cd-table" id="tabela-repo"></table>
+            </div>
+            <div class="paginacao">
+              <button id="repo-ant">‹ Anterior</button>
+              <span id="repo-info"></span>
+              <button id="repo-prox">Próxima ›</button>
+            </div>
+          </section>
         </div>
 
         <!-- ================= ABA TABELA ================= -->

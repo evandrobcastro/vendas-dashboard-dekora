@@ -91,6 +91,21 @@ def executar(dias: int = 7, headless: bool = True, notificar: bool = True) -> di
         except Exception:
             log.exception("Falha na sincronizacao do financeiro (vendas/orcamentos OK)")
 
+        # Reposicoes/manutencoes (OS): atualiza o mes corrente + anterior.
+        # Isolado do sync principal.
+        try:
+            from reposicoes_erp import coletar_meses as coletar_repo
+            from storage_reposicoes import sincronizar_reposicoes
+            mes_ant = (hoje.replace(day=1) - timedelta(days=1))
+            meses_repo = [mes_ant.strftime("%Y-%m"), hoje.strftime("%Y-%m")]
+            linhas_repo = coletar_repo(
+                os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), meses_repo, headless=headless
+            )
+            resultado.update(sincronizar_reposicoes(linhas_repo, meses_repo))
+            log.info("Reposicoes sincronizadas: %s linhas", resultado.get("linhas_reposicoes"))
+        except Exception:
+            log.exception("Falha na sincronizacao de reposicoes (vendas/orcamentos OK)")
+
     except (ValidacaoError, Exception) as e:
         erro = str(e)
         log.exception("Falha na sincronizacao")

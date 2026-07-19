@@ -73,6 +73,23 @@ def rodar(data_inicio: date, data_fim: date) -> dict:
     except Exception as e:
         print(f"AVISO: falha na sincronizacao do financeiro ({e}); backfill principal OK")
 
+    # Reposicoes/manutencoes dos meses do intervalo. Isolado.
+    try:
+        from reposicoes_erp import coletar_meses as coletar_repo
+        from storage_reposicoes import sincronizar_reposicoes
+        meses_repo = []
+        ano, mes = data_inicio.year, data_inicio.month
+        while (ano, mes) <= (data_fim.year, data_fim.month):
+            meses_repo.append(f"{ano}-{mes:02d}")
+            mes += 1
+            if mes > 12:
+                mes, ano = 1, ano + 1
+        linhas_repo = coletar_repo(os.getenv("ECG_USER"), os.getenv("ECG_PASSWORD"), meses_repo)
+        resultado.update(sincronizar_reposicoes(linhas_repo, meses_repo))
+        print(f"Reposicoes concluido: {resultado.get('linhas_reposicoes')} linhas")
+    except Exception as e:
+        print(f"AVISO: falha na sincronizacao de reposicoes ({e}); backfill principal OK")
+
     return resultado
 
 
