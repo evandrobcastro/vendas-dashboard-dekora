@@ -80,9 +80,10 @@ const REPO_PAG = { pagina: 0 };
 const CORES_REPO = {
   "MANUTENÇÃO - MONTADOR": "#8B3C05",
   "MANUTENÇÃO - FORNECEDOR": "#C9712E",
-  "REPOSIÇÃO EMPRESA": "#8A6A4A",
-  "REPOSIÇÃO CLIENTE": "#B8860B",
-  "REPOSIÇÃO FORNECEDOR": "#6E4B2A",
+  "MANUTENÇÃO - PRODUÇÃO": "#8A6A4A",
+  "REPOSIÇÃO EMPRESA": "#B8860B",
+  "REPOSIÇÃO CLIENTE": "#6E4B2A",
+  "REPOSIÇÃO FORNECEDOR": "#D8CFC0",
   "MANUTENÇÃO": "#B9AD9E",
 };
 const GRAFICOS = {}; // instâncias ECharts por id de elemento
