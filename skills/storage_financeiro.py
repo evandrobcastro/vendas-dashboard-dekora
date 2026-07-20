@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS financeiro (
     loja TEXT NOT NULL,
     grupo TEXT NOT NULL,
     classe TEXT NOT NULL,
-    valor REAL DEFAULT 0,
+    valor DOUBLE PRECISION DEFAULT 0,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (ano_mes, loja, grupo, classe)
 );
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS financeiro_previsto (
     loja TEXT NOT NULL,
     grupo TEXT NOT NULL,
     classe TEXT NOT NULL,
-    valor REAL DEFAULT 0,
+    valor DOUBLE PRECISION DEFAULT 0,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (ano_mes, loja, grupo, classe)
 );

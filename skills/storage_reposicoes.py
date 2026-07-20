@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS reposicoes (
     data_cadastro TEXT,
     causadores TEXT,
     motivos TEXT,
-    metragem REAL DEFAULT 0,
-    custo REAL DEFAULT 0,
-    horas REAL DEFAULT 0,
+    metragem DOUBLE PRECISION DEFAULT 0,
+    custo DOUBLE PRECISION DEFAULT 0,
+    horas DOUBLE PRECISION DEFAULT 0,
     status TEXT,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (os, ano_mes)
